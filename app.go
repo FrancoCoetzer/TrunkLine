@@ -13,15 +13,14 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 
 	"trunkline/internal/config"
 	"trunkline/internal/svn"
+	"trunkline/internal/update"
 )
-
-// Version is stamped by the Makefile (-X main.Version=...).
-var Version = ""
 
 // Events the frontend listens for.
 const evOpLine = "op:line" // string: a line of checkout/update output
@@ -38,6 +37,8 @@ type App struct {
 	mu       sync.Mutex
 	creds    map[string]svn.Creds // host -> login, for this session only
 	opCancel context.CancelFunc   // the running checkout/update, if any
+
+	updating sync.Mutex // one app update at a time
 }
 
 func NewApp() (*App, error) {
@@ -54,7 +55,11 @@ func NewApp() (*App, error) {
 	return a, nil
 }
 
-func (a *App) startup(ctx context.Context) { a.ctx = ctx }
+func (a *App) startup(ctx context.Context) {
+	a.ctx = ctx
+	update.CleanupOld()
+	go a.watchUpdates()
+}
 
 // appError is what a failed call rejects with in the frontend: JSON the page
 // parses, so it can ask for a login or a certificate decision and retry.
@@ -137,6 +142,7 @@ type Startup struct {
 	OS            string               `json:"os"`
 	WorkingCopies []config.WorkingCopy `json:"workingCopies"`
 	Servers       []config.Server      `json:"servers"`
+	UpdateCheck   bool                 `json:"updateCheck"` // check for new releases automatically
 }
 
 func (a *App) Startup() Startup {
@@ -154,16 +160,17 @@ func (a *App) Startup() Startup {
 	a.cfg.Read(func(c *config.Config) {
 		s.WorkingCopies = slices.Clone(c.WorkingCopies)
 		s.Servers = slices.Clone(c.Servers)
+		s.UpdateCheck = !c.NoUpdateCheck
 	})
 	return s
 }
 
 // Version is the running version.
 func (a *App) Version() string {
-	if Version == "" {
+	if update.Version == "" {
 		return "dev"
 	}
-	return Version
+	return update.Version
 }
 
 // --- Logins and certificates ----------------------------------------------
@@ -696,5 +703,97 @@ func (a *App) Open(wc, rel string) error {
 		return err
 	}
 	go cmd.Wait()
+	return nil
+}
+
+// --- Updates ------------------------------------------------------------------
+
+// Events for updates.
+const (
+	evUpdateAvailable = "update:available" // update.Info, from the automatic check
+	evUpdateProgress  = "update:progress"  // string, one per install step
+)
+
+// How often the automatic check runs. GitHub allows 60 unauthenticated API
+// calls an hour per address, which a whole office behind one address shares.
+const (
+	updateFirstCheck = 10 * time.Second
+	updateEvery      = 6 * time.Hour
+)
+
+// watchUpdates checks for a new release shortly after start, then every
+// updateEvery, and tells the window when there is one.
+func (a *App) watchUpdates() {
+	wait := updateFirstCheck
+	for {
+		select {
+		case <-a.ctx.Done():
+			return
+		case <-time.After(wait):
+		}
+		wait = updateEvery
+		off := false
+		a.cfg.Read(func(c *config.Config) { off = c.NoUpdateCheck })
+		if off {
+			continue
+		}
+		ctx, cancel := context.WithTimeout(a.ctx, 30*time.Second)
+		info, err := update.New().Check(ctx)
+		cancel()
+		if err == nil && info.Available {
+			runtime.EventsEmit(a.ctx, evUpdateAvailable, info)
+		}
+	}
+}
+
+// CheckUpdate looks for a newer release now.
+func (a *App) CheckUpdate() (update.Info, error) {
+	ctx, cancel := context.WithTimeout(a.ctx, 30*time.Second)
+	defer cancel()
+	info, err := update.New().Check(ctx)
+	if err != nil {
+		return info, &appError{Kind: "other", Message: "Couldn't check for updates: " + err.Error()}
+	}
+	return info, nil
+}
+
+// RepoURL is the app's GitHub page.
+func (a *App) RepoURL() string { return "https://github.com/" + update.Repo }
+
+// InstallKind is how this copy was installed: deb, windows or source.
+func (a *App) InstallKind() string { return update.InstallKind() }
+
+// SetUpdateCheck turns the automatic check on or off.
+func (a *App) SetUpdateCheck(on bool) error {
+	return a.cfg.Update(func(c *config.Config) { c.NoUpdateCheck = !on })
+}
+
+// InstallUpdate installs release tag, then starts the new version and quits.
+func (a *App) InstallUpdate(tag string) error {
+	if !a.updating.TryLock() {
+		return &appError{Kind: "other", Message: "An update is already being installed."}
+	}
+	defer a.updating.Unlock()
+	restart, err := update.New().Install(a.ctx, tag, func(s string) { runtime.EventsEmit(a.ctx, evUpdateProgress, s) })
+	if err != nil {
+		return &appError{Kind: "other", Message: err.Error()}
+	}
+	if restart != "" {
+		if err := update.Restart(restart); err != nil {
+			return &appError{Kind: "other", Message: "Installed " + tag + ", but restarting failed: " + err.Error() + ". Start TrunkLine again."}
+		}
+	}
+	runtime.Quit(a.ctx)
+	return nil
+}
+
+// OpenReleasePage opens this app's repository page, or a page in it (a
+// release, from the update check), in the browser. Nothing else.
+func (a *App) OpenReleasePage(u string) error {
+	base := "https://github.com/" + update.Repo
+	if u != base && !strings.HasPrefix(u, base+"/") {
+		return &appError{Kind: "other", Message: "Not a page of this app's repository: " + u}
+	}
+	runtime.BrowserOpenURL(a.ctx, u)
 	return nil
 }

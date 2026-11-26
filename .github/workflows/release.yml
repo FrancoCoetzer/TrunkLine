@@ -1,0 +1,38 @@
+# Pushing a vX.Y.Z tag (make release) builds the .deb, the Windows setup and
+# SHA256SUMS, and publishes them as a GitHub release with the tag's message
+# as its notes. Installed copies of TrunkLine then offer the update.
+name: Release
+
+on:
+  push:
+    tags: ["v*.*.*"]
+
+permissions:
+  contents: write # to publish the release
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Install build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev nsis subversion
+
+      - name: Build the release files
+        run: make dist TAG="$GITHUB_REF_NAME"
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" build/dist/* \
+            --title "TrunkLine $GITHUB_REF_NAME" --notes-from-tag --verify-tag

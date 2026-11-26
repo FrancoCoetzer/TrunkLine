@@ -104,6 +104,11 @@
   #toast.ok { border-color: var(--green); }
   .banner { margin: 10px 14px 0; padding: 8px 12px; border-radius: var(--radius); border: 1px solid var(--accent); background: var(--accent-tint); }
   .banner.err { border-color: var(--red); background: var(--red-tint); }
+  .banner.update { border-color: var(--cyan); background: var(--cyan-tint); display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between; }
+  .banner .row { display: flex; gap: 6px; }
+  #aboutDlg dl { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; }
+  #aboutDlg dt { color: var(--ink-dim); }
+  #aboutDlg dd { margin: 0; overflow-wrap: anywhere; }
 </style>
 </head>
 <body>
@@ -111,7 +116,7 @@
   <span class="brand">Trunk<b>Line</b></span>
   <span id="svnChip" class="chip">svn</span>
   <span class="spacer"></span>
-  <span id="version" class="muted"></span>
+  <button class="ghost" id="version" title="About TrunkLine and updates"></button>
 </header>
 
 <div class="layout">
@@ -132,6 +137,14 @@
 
   <main>
     <div id="noSvn" class="banner err" hidden></div>
+    <div id="updateBanner" class="banner update" hidden>
+      <div><b id="updateTitle"></b> <span id="updateNotes" class="muted"></span></div>
+      <div class="row">
+        <button class="primary" id="updateInstall">Install and restart</button>
+        <button id="updatePage">What's new</button>
+        <button class="ghost" id="updateLater">Later</button>
+      </div>
+    </div>
 
     <!-- Nothing picked yet -->
     <div id="welcome" class="welcome">
@@ -287,6 +300,22 @@
   <h3 id="confirmTitle"></h3>
   <p id="confirmMsg" style="white-space:pre-wrap"></p>
   <div class="actions"><button value="cancel">Cancel</button><button class="danger" value="ok" id="confirmOk"></button></div>
+</form></dialog>
+
+<dialog id="aboutDlg"><form method="dialog">
+  <h3>TrunkLine</h3>
+  <p>A desktop SVN client for Linux and Windows. Free software under the GNU GPL v3.</p>
+  <dl>
+    <dt>Version</dt><dd id="aboutVersion"></dd>
+    <dt>svn</dt><dd id="aboutSvn"></dd>
+    <dt>Updates</dt><dd id="aboutUpdate">Not checked yet</dd>
+  </dl>
+  <label style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="aboutAuto"> Check for updates automatically</label>
+  <div class="actions">
+    <button type="button" id="aboutRepo">GitHub page</button>
+    <button type="button" id="aboutCheck">Check for updates</button>
+    <button value="cancel">Close</button>
+  </div>
 </form></dialog>
 
 <div id="toast" hidden></div>

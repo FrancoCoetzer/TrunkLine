@@ -31,8 +31,9 @@ type Server struct {
 type Config struct {
 	WorkingCopies []WorkingCopy     `json:"workingCopies"`
 	Servers       []Server          `json:"servers"`
-	TrustedHosts  []string          `json:"trustedHosts"` // host[:port] whose certificate failures are accepted
-	Usernames     map[string]string `json:"usernames"`    // host -> last username, to fill the login dialog
+	TrustedHosts  []string          `json:"trustedHosts"`  // host[:port] whose certificate failures are accepted
+	Usernames     map[string]string `json:"usernames"`     // host -> last username, to fill the login dialog
+	NoUpdateCheck bool              `json:"noUpdateCheck"` // don't look for new releases automatically
 
 	mu   sync.Mutex
 	path string

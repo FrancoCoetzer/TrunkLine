@@ -46,6 +46,16 @@ rebuild after editing `frontend/dist`.
   hold that back). Keep it that way.
 - This is a public repo: no company names, internal hostnames or paths.
 
+- **Updates** (`internal/update`): releases come from GitHub (`update.Repo`).
+  An update is only installed after its SHA-256 matches the release's
+  `SHA256SUMS`; keep that check. The asset names in `AssetName` and in the
+  Makefile's `dist` target must match. A build's version and install kind
+  (deb, windows, source) are stamped by the Makefile; a plain `go build` has
+  neither and never offers updates.
+- **Releases**: `make release V=vX.Y.Z NOTES="..."` only when the user asks; it
+  publishes to everyone who has the app installed. Don't leave a `make dist
+  TAG=v9.9.9` package installed: it would never accept a real release.
+
 ## Testing by hand
 
 `make dev` builds a debug binary and serves the page on http://localhost:34115

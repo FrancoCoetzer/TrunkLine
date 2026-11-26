@@ -35,6 +35,21 @@ that works the same on both, built with Go and [Wails](https://wails.io/).
   Keyring or KWallet on Linux; the Windows credential store). Servers with a
   company or self-signed certificate ask once whether to trust them.
 
+## Install
+
+Download the latest release from the
+[releases page](https://github.com/FrancoCoetzer/TrunkLine/releases):
+
+- **Ubuntu / Debian** (Ubuntu 24.04 or newer): `trunkline_X.Y.Z_amd64.deb`, then
+  `sudo apt install ./trunkline_X.Y.Z_amd64.deb` (this also installs svn).
+- **Windows**: `trunkline-X.Y.Z-setup.exe`. It installs for your user only (no
+  admin rights). The installer isn't code-signed yet, so Windows SmartScreen
+  may warn: click **More info**, then **Run anyway**.
+
+TrunkLine checks for new releases when it starts and every few hours, and
+offers to install them (one password prompt on Linux, none on Windows). Turn
+that off, or check by hand, by clicking the version number in the top right.
+
 ## Requirements
 
 TrunkLine uses the real `svn` command-line client, so it behaves exactly like
@@ -61,6 +76,18 @@ make install-desktop   # a "TrunkLine (dev)" launcher in the app menu
 
 The frontend has no build step: edit `frontend/dist` and rebuild.
 
+## Releasing
+
+```sh
+make release V=v0.2.0 NOTES="Blame view"
+```
+
+This tags `main` and pushes the tag. The release workflow
+(`.github/workflows/release.yml`) then builds the .deb, the Windows setup and
+`SHA256SUMS`, and publishes them as a GitHub release; installed copies offer it
+within a few hours. The first line of `NOTES` is what users see in the update
+banner. `make dist TAG=v9.9.9` builds the same files locally for testing.
+
 ## Layout
 
 | Path | What |
@@ -68,9 +95,11 @@ The frontend has no build step: edit `frontend/dist` and rebuild.
 | `main.go` | Wails start-up |
 | `app.go` | the methods the window calls (`window.go.main.App.*`) |
 | `internal/svn` | runs `svn` and parses its `--xml` output |
+| `internal/update` | checks GitHub releases, downloads, verifies and installs updates |
 | `internal/config` | saved settings: `~/.config/trunkline/config.json` (`%AppData%\trunkline` on Windows) |
 | `frontend/dist` | `index.html`, `app.js`, and `theme.css` |
-| `packaging` | the icon |
+| `packaging` | the icon, the .deb and the Windows setup (NSIS) |
+| `.github/workflows` | CI, and the release build |
 
 ## Status
 

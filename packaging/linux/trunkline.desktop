@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=TrunkLine
+GenericName=SVN Client
+Comment=Subversion (SVN) client
+Exec=/usr/bin/trunkline
+Icon=trunkline
+Terminal=false
+Categories=Development;RevisionControl;
+Keywords=svn;subversion;version control;
