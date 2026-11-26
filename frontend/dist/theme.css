@@ -17,6 +17,7 @@
     --panel: #131922;
     --panel-hi: #1c2432;
     --line: #243042;
+    --line-strong: #4a5c78; /* edges that must be seen: fields, checkboxes (3:1 against --bg) */
     --ink: #e2e8f0;
     --ink-dim: #8191a6;
     --accent: #f59e0b;

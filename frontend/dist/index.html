@@ -130,10 +130,20 @@
   table.blame td.code { white-space: pre; }
   #progLog { height: 260px; overflow: auto; background: var(--bg); border: 1px solid var(--line); border-radius: var(--radius); padding: 6px 8px; white-space: pre; font-size: 12px; }
 
-  #toast { position: fixed; right: 16px; bottom: 16px; max-width: min(560px, 80vw); padding: 10px 14px; border-radius: var(--radius-lg);
-    border: 1px solid var(--line); background: var(--panel-hi); white-space: pre-wrap; z-index: 10; box-shadow: 0 6px 24px rgb(0 0 0 / .4); }
-  #toast.err { border-color: var(--red); }
-  #toast.ok { border-color: var(--green); }
+  /* Messages: a stack in the bottom right. They wait while a dialog is open (see toast() in app.js). */
+  #toasts { position: fixed; right: 16px; bottom: 16px; z-index: 10; display: flex; flex-direction: column; align-items: flex-end;
+    gap: 8px; max-width: min(560px, calc(100vw - 32px)); pointer-events: none; }
+  .toast { pointer-events: auto; display: flex; align-items: flex-start; gap: 8px; padding: 10px 8px 10px 14px; border-radius: var(--radius-lg);
+    border: 1px solid var(--line-strong); background: var(--panel-hi); box-shadow: 0 6px 24px rgb(0 0 0 / .4); max-width: 100%; }
+  .toast.err { border-color: var(--red); }
+  .toast.ok { border-color: var(--green); }
+  .toast .toast-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+  .toast .toast-msg { white-space: pre-wrap; line-height: 1.45; overflow-wrap: anywhere; }
+  .toast details summary { color: var(--ink-dim); }
+  .toast pre { white-space: pre-wrap; overflow-wrap: anywhere; font-family: var(--mono); font-size: 12px; color: var(--ink-dim);
+    max-height: 30vh; overflow: auto; margin: 6px 0; }
+  .toast .toast-close { padding: 0 6px; font-size: 16px; line-height: 1.2; }
+  .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
   .banner { margin: 10px 14px 0; padding: 8px 12px; border-radius: var(--radius); border: 1px solid var(--accent); background: var(--accent-tint); }
   .banner.err { border-color: var(--red); background: var(--red-tint); }
   .banner.update { border-color: var(--cyan); background: var(--cyan-tint); display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between; }
@@ -330,7 +340,7 @@
 <dialog id="loginDlg"><form method="dialog">
   <h3>Log in to <span id="loginHost"></span></h3>
   <p id="loginWhy"></p>
-  <div class="field"><label for="loginUser">Username</label><input id="loginUser" autocomplete="username"></div>
+  <div class="field"><label for="loginUser">Username</label><input id="loginUser" required autocomplete="username"></div>
   <div class="field"><label for="loginPass">Password</label><input id="loginPass" type="password" autocomplete="current-password"></div>
   <div class="actions"><button value="cancel" formnovalidate>Cancel</button><button class="primary" value="ok">Log in</button></div>
 </form></dialog>
@@ -345,7 +355,7 @@
 
 <dialog id="serverDlg"><form method="dialog">
   <h3>Add a repository</h3>
-  <div class="field"><label for="serverUrl">URL</label><input id="serverUrl" placeholder="https://svn.example.com/svn/project"></div>
+  <div class="field"><label for="serverUrl">URL</label><input id="serverUrl" required placeholder="https://svn.example.com/svn/project"></div>
   <div class="field"><label for="serverName">Name (optional)</label><input id="serverName"></div>
   <div class="actions"><button value="cancel" formnovalidate>Cancel</button><button class="primary" value="ok">Add</button></div>
 </form></dialog>
@@ -353,10 +363,10 @@
 <dialog id="checkoutDlg"><form method="dialog">
   <h3 id="coTitle">Check out</h3>
   <p id="coNote"></p>
-  <div class="field"><label>From</label><input id="coUrl"></div>
+  <div class="field"><label>From</label><input id="coUrl" required></div>
   <div class="field"><label for="coParent">Into folder</label>
-    <div class="row"><input id="coParent"><button type="button" id="coPick">Choose…</button></div></div>
-  <div class="field"><label for="coName">Name of the new folder</label><input id="coName"></div>
+    <div class="row"><input id="coParent" required><button type="button" id="coPick">Choose…</button></div></div>
+  <div class="field"><label for="coName">Name of the new folder</label><input id="coName" required></div>
   <p id="coTarget"></p>
   <div class="actions"><button value="cancel" formnovalidate>Cancel</button><button class="primary" value="ok" id="coOk">Check out</button></div>
 </form></dialog>
@@ -366,10 +376,10 @@
   <p>Commits the files in a folder on your computer into a new folder in this repository.
     Build junk svn ignores (*.o, *.pyc, …) is left out.</p>
   <div class="field"><label for="imDir">Folder on your computer</label>
-    <div class="row"><input id="imDir"><button type="button" id="imPick">Choose…</button></div></div>
+    <div class="row"><input id="imDir" required><button type="button" id="imPick">Choose…</button></div></div>
   <div class="field"><label for="imName">New repository folder (inside the current one; use a/b for more levels, e.g. project/trunk)</label>
-    <input id="imName"></div>
-  <div class="field"><label for="imMsg">Commit message</label><input id="imMsg"></div>
+    <input id="imName" required></div>
+  <div class="field"><label for="imMsg">Commit message</label><input id="imMsg" required></div>
   <p id="imTarget"></p>
   <label style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="imInPlace" checked> Make my folder the working copy, so I can keep working in it and commit</label>
   <div class="actions"><button value="cancel" formnovalidate>Cancel</button><button class="primary" value="ok">Import</button></div>
@@ -407,7 +417,7 @@
   <h3 id="branchTitle">New branch</h3>
   <p id="branchWhat"></p>
   <div class="field"><label for="branchName">Name</label>
-    <input id="branchName" placeholder="e.g. imu-rework" maxlength="100" autocomplete="off"></div>
+    <input id="branchName" required pattern="[A-Za-z0-9][A-Za-z0-9._\-]{0,99}" title="Letters, digits, . _ and -, starting with a letter or digit" placeholder="e.g. imu-rework" maxlength="100" autocomplete="off"></div>
   <div class="field"><label>Copy from</label>
     <label style="display:flex;gap:6px;align-items:center"><input type="radio" name="branchFrom" value="head" checked> <span id="branchFromHead"></span></label>
     <label style="display:flex;gap:6px;align-items:center"><input type="radio" name="branchFrom" value="wc"> <span id="branchFromWc"></span></label>
@@ -437,7 +447,7 @@
   <p>If the repository now has a new address (a new server name, or https instead of http), point this working copy
     at it. Nothing changes on the server, and your local changes stay. svn checks that it's the same repository.</p>
   <div class="field"><label>Current address</label><input id="relocateOld" readonly></div>
-  <div class="field"><label for="relocateNew">New address</label><input id="relocateNew"></div>
+  <div class="field"><label for="relocateNew">New address</label><input id="relocateNew" required></div>
   <p class="muted">Other working copies of this repository need moving too: do this in each.</p>
   <div class="actions"><button value="cancel" formnovalidate>Cancel</button><button class="primary" value="ok">Move</button></div>
 </form></dialog>
@@ -445,7 +455,7 @@
 <dialog id="urlDlg"><form method="dialog">
   <h3>Switch to URL</h3>
   <p>Any folder of the same repository: a branch, a tag, or an older layout. Your local changes come along.</p>
-  <div class="field"><label for="switchUrl">URL</label><input id="switchUrl"></div>
+  <div class="field"><label for="switchUrl">URL</label><input id="switchUrl" required></div>
   <div class="actions"><button value="cancel" formnovalidate>Cancel</button><button class="primary" value="ok">Switch</button></div>
 </form></dialog>
 
@@ -478,7 +488,10 @@
   <div id="blameBody"></div>
 </form></dialog>
 
-<div id="toast" hidden></div>
+<!-- Messages: shown in #toasts; announced through the live regions, which are always in the page -->
+<div id="toasts" role="region" aria-label="Notifications"></div>
+<div class="sr-only" id="announcePolite" aria-live="polite"></div>
+<div class="sr-only" id="announceAlert" aria-live="assertive"></div>
 <script src="app.js"></script>
 </body>
 </html>

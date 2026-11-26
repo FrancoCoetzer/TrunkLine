@@ -41,16 +41,110 @@ function store(key, value) {
   return null;
 }
 
-let toastTimer;
+// ---- Messages (toasts) ------------------------------------------------------------------------
+//
+// toast(msg, cls) shows a message in the bottom-right stack: cls "ok", "err"
+// or "" (info). While a dialog is open the message waits and appears when it
+// closes (it would be hidden behind it, and easy to miss). Errors stay until
+// dismissed; others go after a few seconds, but not while the pointer or
+// keyboard focus is on them. Each is announced to screen readers when shown.
+
+const toastQueue = [];
+let toastWaiting = null;
+const TOAST_SECONDS = 7;
+
+function modalOpen() { return !!document.querySelector("dialog[open]"); }
+
 function toast(msg, cls = "") {
-  const t = $("toast");
-  t.textContent = msg;
-  t.className = cls;
-  t.hidden = false;
-  clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => (t.hidden = true), cls === "err" ? 12000 : 5000);
+  msg = String(msg);
+  // the same message twice in a row: show it once
+  const last = toastQueue[toastQueue.length - 1];
+  if (last && last.msg === msg) return;
+  toastQueue.push({ msg, cls });
+  if (toastQueue.length > 5) toastQueue.shift();
+  pumpToasts();
 }
-$("toast").onclick = () => ($("toast").hidden = true);
+
+function pumpToasts() {
+  if (!toastQueue.length) return;
+  if (modalOpen()) {
+    // A timer, not the dialog's close event: a webview that isn't painting can hold that back.
+    if (!toastWaiting) toastWaiting = setInterval(() => {
+      if (modalOpen()) return;
+      clearInterval(toastWaiting);
+      toastWaiting = null;
+      pumpToasts();
+    }, 250);
+    return;
+  }
+  while (toastQueue.length) showToast(toastQueue.shift());
+}
+
+// splitError separates svn's own lines ("svn: E170013: ...") from the
+// explanation TrunkLine wrote, so the toast can lead with plain words.
+function splitError(msg) {
+  const lines = msg.split("\n");
+  const raw = lines.filter(l => /^svn: /.test(l));
+  let summary = lines.filter(l => !/^svn: /.test(l)).join("\n").trim();
+  if (!summary && raw.length) {
+    summary = raw[raw.length - 1].replace(/^svn: (warning: )?[EW]\d{6}: /, "");
+    if (raw.length === 1) return { summary, details: "" };
+  }
+  return { summary: summary || msg, details: raw.join("\n") };
+}
+
+function announce(text, urgent) {
+  const region = $(urgent ? "announceAlert" : "announcePolite");
+  region.textContent = "";
+  setTimeout(() => (region.textContent = text), 50); // a change, so a repeated message is read again
+}
+
+function showToast({ msg, cls }) {
+  const stack = $("toasts");
+  while (stack.children.length >= 3) dismissToast(stack.firstElementChild, false);
+  const { summary, details } = cls === "err" ? splitError(msg) : { summary: msg, details: "" };
+  const body = el("div", { class: "toast-body" }, el("p", { class: "toast-msg" }, summary));
+  if (details) {
+    const copy = el("button", { type: "button", class: "ghost" }, "Copy");
+    copy.onclick = () => {
+      navigator.clipboard.writeText(msg).then(() => (copy.textContent = "Copied"), () => (copy.textContent = "Couldn't copy"));
+    };
+    body.append(el("details", {}, el("summary", {}, "Details"), el("pre", {}, details), copy));
+  }
+  const close = el("button", { type: "button", class: "ghost toast-close", "aria-label": "Dismiss this message", title: "Dismiss (Esc)" }, "×");
+  const t = el("div", { class: "toast " + cls }, body, close);
+  close.onclick = () => dismissToast(t, true);
+  stack.append(t);
+  announce(summary, cls === "err");
+  if (cls !== "err") {
+    const tick = () => {
+      if (!t.isConnected) return;
+      if (t.matches(":hover, :focus-within")) { t._timer = setTimeout(tick, 1000); return; }
+      dismissToast(t, false);
+    };
+    t._timer = setTimeout(tick, TOAST_SECONDS * 1000);
+  }
+}
+
+// dismissToast removes a toast; keyboard focus inside it moves to the next
+// one's close button, or back to the page.
+function dismissToast(t, byUser) {
+  if (!t || !t.isConnected || t.classList.contains("leaving")) return;
+  clearTimeout(t._timer);
+  const hadFocus = t.contains(document.activeElement);
+  t.classList.add("leaving");
+  setTimeout(() => t.remove(), 140); // a timer, not transitionend (see the motion notes in index.html)
+  if (hadFocus || byUser) {
+    const next = [...$("toasts").children].reverse().find(x => x !== t && !x.classList.contains("leaving"));
+    if (hadFocus) (next ? next.querySelector(".toast-close") : document.querySelector("main"))?.focus?.();
+  }
+}
+
+document.addEventListener("keydown", e => {
+  if (e.key !== "Escape" || modalOpen()) return;
+  const last = [...$("toasts").children].reverse().find(x => !x.classList.contains("leaving"));
+  if (last) { e.preventDefault(); dismissToast(last, true); }
+});
 
 function fmtDate(s) {
   if (!s || s.startsWith("0001")) return "";
@@ -162,12 +256,28 @@ async function call(name, ...args) {
 // report shows a failed call, with a hint for the usual fixes.
 function report(err) {
   err = parseErr(err);
-  if (err.kind === "canceled") return toast("Canceled.");
+  if (err.kind === "canceled") return; // the user knows
   let msg = err.message;
   if (err.kind === "locked") msg += "\n\nTry Cleanup.";
   if (err.kind === "conflict" && /out of date/i.test(msg)) msg += "\n\nSomeone committed first: Update, then commit again.";
   if (err.kind === "auth" || err.kind === "cert") msg = "Not connected: " + msg;
   toast(msg, "err");
+}
+
+// flow runs one user action that opens dialogs or waits on the server
+// (merge, switch, checkout, lock…) at a time: a second click while one is
+// in progress is ignored instead of starting it twice.
+let flowRunning = false;
+async function flow(f) {
+  if (flowRunning) return;
+  flowRunning = true;
+  try {
+    return await f();
+  } catch (e) {
+    report(e);
+  } finally {
+    flowRunning = false;
+  }
 }
 
 async function busy(btn, f) {
@@ -318,6 +428,12 @@ async function openWc(path) {
     state.historyFile = null;
     state.logSearch = "";
     $("logSearch").value = "";
+    // Nothing of the previous working copy may show while this one loads.
+    $("changes").replaceChildren(el("tr", {}, el("td", { class: "placeholder", colspan: 4 }, "Loading…")));
+    $("changeCount").textContent = "";
+    for (const id of ["log", "branches", "locks", "revDiff"]) $(id).replaceChildren();
+    $("revDetail").hidden = true;
+    $("wcIncoming").hidden = true;
   }
   state.view = { type: "wc", path };
   store("last", JSON.stringify(state.view));
@@ -811,7 +927,7 @@ function showRevision(e) {
       el("button", { onclick: () => pick(null, root + "@" + e.revision, e.revision) }, "Show all changes"),
       " ",
       el("button", { class: "danger", title: "Take this commit's changes back out of your working copy, to review and commit",
-        onclick: () => undoRevision(e) }, "Undo this commit")),
+        onclick: () => flow(() => undoRevision(e)) }, "Undo this commit")),
     paths);
   $("revDiff").replaceChildren(el("div", { class: "placeholder" }, "Pick a file to see what this revision changed in it."));
 }
@@ -1209,9 +1325,9 @@ function renderBranches() {
     if (br.current) {
       actions.append(el("span", { class: "chip info" }, "you are here"));
     } else {
-      actions.append(el("button", { onclick: () => switchTo(br) }, "Switch"));
-      actions.append(el("button", { onclick: () => openMerge(br), title: `Bring ${br.name}'s changes into your working copy` }, "Merge into mine…"));
-      if (br.kind !== "trunk") actions.append(el("button", { class: "ghost danger", onclick: () => deleteBranch(br) }, "Delete"));
+      actions.append(el("button", { onclick: () => flow(() => switchTo(br)) }, "Switch"));
+      actions.append(el("button", { onclick: () => flow(() => openMerge(br)), title: `Bring ${br.name}'s changes into your working copy` }, "Merge into mine…"));
+      if (br.kind !== "trunk") actions.append(el("button", { class: "ghost danger", onclick: () => flow(() => deleteBranch(br)) }, "Delete"));
     }
     const c = br.commit;
     tb.append(el("tr", { class: br.current ? "current" : "" },
@@ -1661,6 +1777,14 @@ $("aboutCheck").onclick = () => busy($("aboutCheck"), async () => {
   }
 });
 $("aboutRepo").onclick = async () => Go().OpenReleasePage(await Go().RepoURL()).catch(report);
+
+// Buttons that open a dialog or start a long action: one at a time (flow).
+for (const id of ["addWcBtn", "welcomeWc", "addServerBtn", "welcomeServer", "revertBtn", "ignoreBtn", "removeWcBtn",
+  "removeServerBtn", "checkoutHereBtn", "exportHereBtn", "importHereBtn", "newBranchBtn", "newTagBtn", "relocateBtn",
+  "switchUrlBtn", "lockBtn", "lockPickBtn", "unlockBtn", "updateInstall", "updateBtn"]) {
+  const handler = $(id).onclick;
+  if (handler) $(id).onclick = e => flow(() => handler(e));
+}
 
 // ---- Start ------------------------------------------------------------------------------------
 
