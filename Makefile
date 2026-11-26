@@ -5,7 +5,7 @@
 # make dist also needs nsis (makensis) for the Windows setup.
 
 SHELL      := /bin/bash
-VERSION    := $(shell git describe --tags --dirty --always 2>/dev/null)
+VERSION    := $(shell git describe --tags --match 'v[0-9]*' --dirty --always 2>/dev/null)
 APP_TAGS   := desktop,production
 LINUX_TAGS := $(APP_TAGS),webkit2_41
 # STAMP(version, install kind): what the updater knows about this build.
@@ -50,7 +50,7 @@ install-desktop: app
 # TAG=v9.9.9 makes a local test set from any commit (don't install it: it
 # would never accept a real release as an update).
 dist: test
-	@tag="$(TAG)"; [[ -n $$tag ]] || tag=$$(git describe --tags --exact-match 2>/dev/null) || \
+	@tag="$(TAG)"; [[ -n $$tag ]] || tag=$$(git describe --tags --match 'v[0-9]*' --exact-match 2>/dev/null) || \
 		{ echo "HEAD is not at a release tag: use make release, or TAG=vX.Y.Z for a test build"; exit 1; }; \
 	[[ $$tag =~ ^v[0-9]+\.[0-9]+\.[0-9]+$$ ]] || { echo "$$tag is not a vX.Y.Z tag"; exit 1; }; \
 	command -v makensis >/dev/null || { echo "makensis not found: sudo apt install nsis"; exit 1; }; \
