@@ -1338,3 +1338,27 @@ func (a *App) Relocate(wc, newRoot string) (string, error) {
 	}
 	return info.URL, nil
 }
+
+// --- Incoming changes -----------------------------------------------------------
+
+// Incoming counts the files that have newer versions on the server than in
+// the working copy: what an Update would bring. It asks the server (svn
+// status -u), so the window calls it in the background now and then.
+func (a *App) Incoming(wc string) (int, error) {
+	c, err := a.client()
+	if err != nil {
+		return 0, err
+	}
+	host := a.wcHost(wc)
+	changes, _, err := c.Status(a.ctx, a.opts(host), wc, true)
+	if err != nil {
+		return 0, a.wrap(err, host)
+	}
+	n := 0
+	for _, ch := range changes {
+		if ch.RepoItem != "" {
+			n++
+		}
+	}
+	return n, nil
+}

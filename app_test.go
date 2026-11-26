@@ -580,3 +580,39 @@ func TestRelocateApp(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestIncoming(t *testing.T) {
+	a, wc := testApp(t)
+	info, _ := a.Info(wc)
+	put(t, filepath.Join(wc, "a.c"))
+	put(t, filepath.Join(wc, "b.c"))
+	if _, err := a.Commit(wc, "two files", []string{"a.c", "b.c"}, false, false); err != nil {
+		t.Fatal(err)
+	}
+	// Our own commit isn't "incoming", even before updating.
+	if n, err := a.Incoming(wc); n != 0 || err != nil {
+		t.Errorf("after our own commit: %d %v", n, err)
+	}
+	// Someone else changes both files in two commits.
+	other := filepath.Join(t.TempDir(), "other")
+	if err := a.svn.Checkout(context.Background(), svn.Opts{}, info.URL, other, nil); err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range []string{"a.c", "b.c"} {
+		if err := os.WriteFile(filepath.Join(other, f), []byte("theirs\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := a.svn.Commit(context.Background(), svn.Opts{}, "theirs", []string{filepath.Join(other, f)}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if n, err := a.Incoming(wc); n != 2 || err != nil {
+		t.Errorf("after two incoming changes: %d %v", n, err)
+	}
+	if err := a.svn.Update(context.Background(), svn.Opts{}, wc, nil); err != nil {
+		t.Fatal(err)
+	}
+	if n, _ := a.Incoming(wc); n != 0 {
+		t.Errorf("after updating: %d", n)
+	}
+}

@@ -304,6 +304,8 @@ async function openWc(path) {
     state.log = [];
     state.logRev = null;
     state.incoming = false;
+    setIncoming(0);
+    setTimeout(checkIncoming, 1500);
     state.locks = [];
     state.lockChecked = new Set();
     state.branches = null;
@@ -344,6 +346,7 @@ async function refreshWc(remote) {
     if (remote) {
       state.incoming = true;
       const n = st.changes.filter(c => c.repoItem).length;
+      setIncoming(n);
       $("wcIncoming").textContent = n ? `${n} incoming (HEAD r${st.head})` : `up to date with r${st.head}`;
       $("wcIncoming").hidden = false;
     }
@@ -580,6 +583,34 @@ $("resolveBtn").onclick = () => busy($("resolveBtn"), async () => {
 
 // ---- Working copy buttons ----------------------------------------------------------------
 
+// ---- Incoming changes: "Update (3)" ----------------------------------------------------------
+
+const INCOMING_EVERY = 5 * 60 * 1000;
+let lastIncomingCheck = 0;
+
+function setIncoming(n) {
+  $("updateBtn").textContent = n ? `Update (${n})` : "Update";
+  $("updateBtn").title = n ? `${n} file${n === 1 ? "" : "s"} changed on the server since your last update: svn update` : "svn update";
+  $("updateBtn").classList.toggle("has-incoming", n > 0);
+}
+
+// checkIncoming asks the server, in the background, what an update would
+// bring for the open working copy. It never shows a login or an error (a
+// background check mustn't interrupt): on failure the badge stays as it was.
+async function checkIncoming() {
+  if (!state.view || state.view.type !== "wc" || document.hidden) return;
+  const wc = state.view.path;
+  lastIncomingCheck = Date.now();
+  try {
+    const n = await Go().Incoming(wc);
+    if (state.view && state.view.path === wc) setIncoming(n);
+  } catch { /* offline, or needs a login: try again later */ }
+}
+setInterval(checkIncoming, INCOMING_EVERY);
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden && Date.now() - lastIncomingCheck > 60 * 1000) checkIncoming();
+});
+
 // conflictsAfter tells the user plainly when an update or switch left
 // conflicts (svn finishes "successfully" either way), and shows them.
 function conflictsAfter(what) {
@@ -600,6 +631,7 @@ $("updateBtn").onclick = () => busy($("updateBtn"), async () => {
     state.log = [];
     await refreshWc(state.incoming);
     conflictsAfter("Updated");
+    checkIncoming();
   }
 });
 $("checkBtn").onclick = () => busy($("checkBtn"), () => refreshWc(true));
@@ -1109,6 +1141,7 @@ async function doSwitch(url, label) {
   state.log = [];
   await reloadLists();
   await refreshWc(false);
+  checkIncoming();
   if (ok && !conflictsAfter("Switched to " + label)) {
     $("progDlg").close();
     toast("Switched to " + label + ".", "ok");
