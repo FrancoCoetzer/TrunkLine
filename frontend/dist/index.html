@@ -64,6 +64,13 @@
   .st-deleted, .st-missing, .st-conflicted, .st-obstructed { color: var(--red); }
   .st-unversioned, .st-external, .st-ignored { color: var(--ink-dim); }
   .incoming { color: var(--cyan); }
+  .lockmark { margin-left: 8px; font-size: 11px; }
+  /* Locks table: the file name as wide as it needs (up to a limit), the note takes the rest */
+  #tab-locks td.path { width: auto; max-width: 45vw; }
+  #tab-locks td.msg { width: 100%; }
+  .lock-mine { color: var(--green); }
+  .lock-other { color: var(--accent); }
+  .lock-stolen, .lock-broken { color: var(--red); }
 
   .commit { border-top: 1px solid var(--line); padding: 10px; display: flex; flex-direction: column; gap: 6px; }
   .commit textarea { width: 100%; min-height: 70px; resize: vertical; }
@@ -192,6 +199,7 @@
       <div class="tabs">
         <button data-tab="changes" class="active">Changes</button>
         <button data-tab="history">History</button>
+        <button data-tab="locks" title="Files that need a lock to edit, and who holds which lock">Locks</button>
       </div>
 
       <div id="tab-changes" class="split">
@@ -207,6 +215,8 @@
             <textarea id="commitMsg" placeholder="Commit message (Ctrl+Enter to commit)"></textarea>
             <div class="row">
               <button class="primary" id="commitBtn">Commit</button>
+              <label id="keepLocksBox" hidden title="Normally a commit releases your locks on the committed files">
+                <input type="checkbox" id="keepLocks"> Keep my locks</label>
               <button class="danger" id="revertBtn" title="Throw away local changes to the ticked files">Revert</button>
               <button id="addBtn" title="svn add the ticked unversioned files">Add</button>
               <span id="resolveBox" hidden>
@@ -237,6 +247,28 @@
         <div class="pane">
           <div id="revDetail" class="rev" hidden></div>
           <div class="scroll"><div id="revDiff" class="diff"></div></div>
+        </div>
+      </div>
+
+      <div id="tab-locks" class="pane" hidden>
+        <div class="toolbar">
+          <button class="primary" id="lockBtn" title="Lock the ticked files so only you can commit them">Lock</button>
+          <button id="unlockBtn" title="Release the ticked locks">Unlock</button>
+          <button id="lockPickBtn" title="Lock any file in this working copy">Lock a file…</button>
+          <button class="ghost" id="locksRefreshBtn">Refresh</button>
+          <span style="flex:1"></span>
+          <span class="muted" id="locksCount"></span>
+        </div>
+        <div class="scroll">
+          <table class="list">
+            <thead><tr><th></th><th>File</th><th>Lock</th><th>Note</th><th>Since</th></tr></thead>
+            <tbody id="locks"></tbody>
+          </table>
+          <p class="placeholder" id="locksHelp">
+            Lock a file you can't merge (CAD models, Office documents, images) before you edit it, so nobody else
+            changes it at the same time. Files marked "needs lock" stay read-only until you lock them. Committing
+            releases your locks.
+          </p>
         </div>
       </div>
     </div>
@@ -334,6 +366,14 @@
     <button type="button" id="aboutCheck">Check for updates</button>
     <button value="cancel">Close</button>
   </div>
+</form></dialog>
+
+<dialog id="lockDlg"><form method="dialog">
+  <h3 id="lockTitle">Lock</h3>
+  <p id="lockFiles" style="white-space:pre-wrap"></p>
+  <div class="field"><label for="lockComment">Note for others (optional)</label>
+    <input id="lockComment" placeholder="e.g. reworking the mounting holes" maxlength="200"></div>
+  <div class="actions"><button value="cancel" formnovalidate>Cancel</button><button class="primary" value="ok">Lock</button></div>
 </form></dialog>
 
 <dialog id="blameDlg"><form method="dialog">

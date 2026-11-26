@@ -304,6 +304,8 @@ async function openWc(path) {
     state.log = [];
     state.logRev = null;
     state.incoming = false;
+    state.locks = [];
+    state.lockChecked = new Set();
     $("commitMsg").value = "";
     $("diff").replaceChildren();
     $("diffTitle").textContent = "Pick a file to see its changes";
@@ -398,7 +400,7 @@ function renderChanges() {
       el("td", {}, el("span", { class: "st st-" + si.cls, title: si.label }, si.letter)),
       el("td", {}, ch.repoItem ? el("span", { class: "incoming", title: "changed on the server: " + ch.repoItem }, "*") : ""),
       el("td", { class: "path", title: ch.path + (ch.changelist ? "  (changelist " + ch.changelist + ")" : "") },
-        ch.path + (ch.isDir ? "/" : "")));
+        ch.path + (ch.isDir ? "/" : ""), lockMark(ch.lockState, ch.lock)));
     tr.ondblclick = () => Go().Open(state.view.path, ch.path);
     tb.append(tr);
   }
@@ -420,6 +422,7 @@ function updateChangeButtons() {
   $("revertBtn").disabled = !sel.some(c => c.item !== "unversioned");
   $("addBtn").disabled = !sel.some(c => c.item === "unversioned");
   $("resolveBox").hidden = !state.changes.some(c => c.item === "conflicted" || c.props === "conflicted" || c.treeConflict);
+  $("keepLocksBox").hidden = !sel.some(c => c.lockState === "mine");
 }
 
 $("selAll").onchange = () => {
@@ -500,7 +503,9 @@ async function commit() {
   if (!sel.length) return toast("Tick the changes to commit.");
   if (!msg.trim()) { $("commitMsg").focus(); return toast("Write a commit message first."); }
   await busy($("commitBtn"), async () => {
-    const rev = await withMarkersCheck(allow => call("Commit", state.view.path, msg, sel.map(c => c.path), allow), "Commit anyway");
+    const keep = !$("keepLocksBox").hidden && $("keepLocks").checked;
+    const rev = await withMarkersCheck(allow => call("Commit", state.view.path, msg, sel.map(c => c.path), allow, keep), "Commit anyway");
+    $("keepLocks").checked = false;
     $("commitMsg").value = "";
     state.log = [];
     toast(rev ? `Committed revision ${rev}.` : "Committed.", "ok");
@@ -584,14 +589,15 @@ document.addEventListener("keydown", e => {
 
 // ---- Tabs and history ------------------------------------------------------------------------
 
-function currentTab() { return store("tab") === "history" ? "history" : "changes"; }
+const TABS = ["changes", "history", "locks"];
+function currentTab() { const t = store("tab"); return TABS.includes(t) ? t : "changes"; }
 
 function setTab(tab) {
   store("tab", tab);
   for (const b of document.querySelectorAll(".tabs button")) b.classList.toggle("active", b.dataset.tab === tab);
-  $("tab-changes").hidden = tab !== "changes";
-  $("tab-history").hidden = tab !== "history";
+  for (const t of TABS) $("tab-" + t).hidden = tab !== t;
   if (tab === "history" && !state.log.length && state.info) loadLog(true);
+  if (tab === "locks" && state.view && state.view.type === "wc") loadLocks();
 }
 for (const b of document.querySelectorAll(".tabs button")) b.onclick = () => setTab(b.dataset.tab);
 
@@ -709,7 +715,8 @@ async function listBrowse() {
     for (const e of entries) {
       const dir = e.kind === "dir";
       const tr = el("tr", {},
-        el("td", {}, el("span", { class: dir ? "" : "muted" }, (dir ? "▸ " : "  ") + e.name + (dir ? "/" : ""))),
+        el("td", {}, el("span", { class: dir ? "" : "muted" }, (dir ? "▸ " : "  ") + e.name + (dir ? "/" : "")),
+          e.lock ? lockMark("other", e.lock) : null),
         el("td", { class: "muted" }, e.commit.revision ? "r" + e.commit.revision : ""),
         el("td", {}, e.commit.author || ""),
         el("td", { class: "muted" }, fmtDate(e.commit.date)),
@@ -865,6 +872,143 @@ $("importHereBtn").onclick = async () => {
     if (state.view && state.view.type === "browse") listBrowse();
   }
 };
+
+// ---- Locks -------------------------------------------------------------------------------------
+
+const LOCK_TEXT = { mine: "locked by you", other: "locked", stolen: "your lock was taken over", broken: "your lock was removed" };
+
+// lockMark is the small "locked by …" note after a file name, or null.
+function lockMark(lockState, lock) {
+  if (!lockState) return null;
+  const who = lock && lock.owner ? lock.owner : "";
+  const text = lockState === "other" ? `locked by ${who || "someone"}` : LOCK_TEXT[lockState];
+  const tip = lock ? `${text}${lock.comment ? ": " + lock.comment : ""}${lock.created ? " (" + fmtDate(lock.created) + ")" : ""}` : text;
+  return el("span", { class: "lockmark lock-" + lockState, title: tip }, "[" + text + "]");
+}
+
+state.locks = [];
+state.lockChecked = new Set();
+
+async function loadLocks() {
+  const wc = state.view.path;
+  $("locksCount").textContent = "Asking the server…";
+  try {
+    const files = await call("Locks", wc);
+    if (!state.view || state.view.path !== wc) return;
+    state.locks = files;
+    const paths = new Set(files.map(f => f.path));
+    for (const p of state.lockChecked) if (!paths.has(p)) state.lockChecked.delete(p);
+    renderLocks();
+  } catch (e) {
+    $("locksCount").textContent = "";
+    report(e);
+  }
+}
+
+function renderLocks() {
+  const tb = $("locks");
+  tb.replaceChildren();
+  for (const f of state.locks) {
+    const box = el("input", { type: "checkbox", "aria-label": "Select " + f.path });
+    box.checked = state.lockChecked.has(f.path);
+    box.onchange = () => { if (box.checked) state.lockChecked.add(f.path); else state.lockChecked.delete(f.path); updateLockButtons(); };
+    let lockCell;
+    if (f.state === "other") lockCell = el("span", { class: "lock-other" }, "locked by " + (f.lock.owner || "someone"));
+    else if (f.state) lockCell = el("span", { class: "lock-" + f.state }, LOCK_TEXT[f.state] +
+      (f.state === "stolen" && f.lock ? " by " + f.lock.owner : "") + (f.state !== "mine" ? " (Update clears it)" : ""));
+    else lockCell = el("span", { class: "muted" }, f.needsLock ? "needs lock: read-only until you lock it" : "not locked");
+    tb.append(el("tr", {},
+      el("td", {}, box),
+      el("td", { class: "path", title: f.path }, f.path, f.modified ? el("span", { class: "lockmark st-modified" }, "[modified]") : null),
+      el("td", {}, lockCell),
+      el("td", { class: "msg", title: f.lock ? f.lock.comment : "" }, f.lock ? f.lock.comment : ""),
+      el("td", { class: "muted" }, f.lock ? fmtDate(f.lock.created) : "")));
+  }
+  const mine = state.locks.filter(f => f.state === "mine").length;
+  const others = state.locks.filter(f => f.state === "other").length;
+  $("locksCount").textContent = state.locks.length
+    ? `${mine} locked by you · ${others} locked by others · ${state.locks.filter(f => f.needsLock).length} need a lock`
+    : "No locked files, and none that need a lock";
+  $("locksHelp").hidden = state.locks.length > 0;
+  updateLockButtons();
+}
+
+function lockSelection() { return state.locks.filter(f => state.lockChecked.has(f.path)); }
+
+function updateLockButtons() {
+  const sel = lockSelection();
+  $("lockBtn").disabled = !sel.some(f => f.state !== "mine");
+  $("unlockBtn").disabled = !sel.some(f => f.state === "mine" || f.state === "other");
+}
+
+// askLockAndLock asks for the note, locks paths, and offers to take over
+// any that someone else holds.
+async function askLockAndLock(paths) {
+  $("lockTitle").textContent = paths.length === 1 ? "Lock " + paths[0] : `Lock ${paths.length} files`;
+  $("lockFiles").textContent = "Only you will be able to commit " + (paths.length === 1 ? "it" : "them") +
+    " until you commit or unlock. Others see your name and this note.";
+  $("lockComment").value = "";
+  const r = ask($("lockDlg"));
+  $("lockComment").focus();
+  if (await r !== "ok") return;
+  const comment = $("lockComment").value.trim();
+  const wc = state.view.path;
+  try {
+    await call("LockFiles", wc, paths, comment, false);
+    toast(paths.length === 1 ? `Locked ${paths[0]}.` : `Locked ${paths.length} files.`, "ok");
+  } catch (e) {
+    const err = parseErr(e);
+    if (err.kind !== "lockconflict") return report(err);
+    const ok = await confirmDanger("Take over the lock?", err.message +
+      "\n\nTaking it over means they can no longer commit their changes to it, and may lose that work. " +
+      "Ask them first if you can.", "Take over the lock");
+    if (!ok) { toast("The files nobody else had locked are locked; the others are unchanged."); }
+    else {
+      try {
+        await call("LockFiles", wc, paths, comment, true);
+        toast("Lock taken over.", "ok");
+      } catch (e2) { report(e2); }
+    }
+  }
+  state.lockChecked.clear();
+  if (currentTab() === "locks") await loadLocks();
+  await refreshWc(state.incoming);
+}
+
+$("lockBtn").onclick = () => {
+  const paths = lockSelection().filter(f => f.state !== "mine").map(f => f.path);
+  if (paths.length) askLockAndLock(paths);
+};
+$("lockPickBtn").onclick = async () => {
+  try {
+    const rel = await call("PickFileIn", state.view.path, "Lock a file");
+    if (rel) askLockAndLock([rel]);
+  } catch (e) { report(e); }
+};
+$("locksRefreshBtn").onclick = () => busy($("locksRefreshBtn"), loadLocks);
+
+$("unlockBtn").onclick = () => busy($("unlockBtn"), async () => {
+  const sel = lockSelection();
+  const mine = sel.filter(f => f.state === "mine").map(f => f.path);
+  const theirs = sel.filter(f => f.state === "other");
+  const wc = state.view.path;
+  if (mine.length) {
+    await call("UnlockFiles", wc, mine, false);
+    toast(`Released ${mine.length} lock${mine.length === 1 ? "" : "s"}.`, "ok");
+  }
+  if (theirs.length) {
+    const list = theirs.map(f => `  ${f.path} (locked by ${f.lock.owner}${f.lock.comment ? ": " + f.lock.comment : ""})`).join("\n");
+    if (await confirmDanger("Break someone else's lock?", `These are locked by someone else:\n\n${list}\n\n` +
+        "Breaking a lock means they can no longer commit their changes to the file. Only do this if they're " +
+        "away or forgot to unlock, and ideally tell them.", "Break the lock")) {
+      await call("UnlockFiles", wc, theirs.map(f => f.path), true);
+      toast("Lock broken.", "ok");
+    }
+  }
+  state.lockChecked.clear();
+  await loadLocks();
+  await refreshWc(state.incoming);
+});
 
 // ---- Blame -------------------------------------------------------------------------------------
 

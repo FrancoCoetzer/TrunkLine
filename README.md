@@ -21,6 +21,13 @@ that works the same on both, built with Go and [Wails](https://wails.io/).
   update would bring in without changing anything (`svn status -u`).
 - **History**: the log of the working copy's URL. Click a revision to see its
   message and files, and a file to see what that revision changed in it.
+- **Locks**: lock a file you can't merge (CAD models, Office documents,
+  images) before editing it, so nobody else changes it at the same time. The
+  Locks tab lists the files that need a lock (svn:needs-lock, read-only until
+  locked) and who holds which lock, with their note; locked files are marked
+  in the Changes list and the repository browser. Committing releases your
+  locks (or tick "Keep my locks"). Taking over or breaking someone else's
+  lock asks first.
 - **Blame**: who last changed each line of a file, and in which revision, with
   newer changes highlighted. Click a revision for its commit message. Open it
   from a changed file (Blame, next to Open file), or by clicking any file in

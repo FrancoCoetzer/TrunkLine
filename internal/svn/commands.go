@@ -92,6 +92,10 @@ type Change struct {
 	Changelist   string `json:"changelist,omitempty"`
 	RepoItem     string `json:"repoItem,omitempty"` // with remote: what changed on the server
 	Revision     int    `json:"revision"`
+	// LockState is "" or one of LockMine, LockOther, LockStolen, LockBroken
+	// (other, stolen and broken only with remote); Lock is the lock to show.
+	LockState string    `json:"lockState,omitempty"`
+	Lock      *LockInfo `json:"lock,omitempty"`
 }
 
 // Conflicted says whether the change needs resolving before a commit.
@@ -114,15 +118,17 @@ func (c *Client) Status(ctx context.Context, o Opts, wc string, remote bool) ([]
 	type entry struct {
 		Path string `xml:"path,attr"`
 		WC   struct {
-			Item     string `xml:"item,attr"`
-			Props    string `xml:"props,attr"`
-			Revision string `xml:"revision,attr"`
-			Tree     string `xml:"tree-conflicted,attr"`
-			Copied   string `xml:"copied,attr"`
-			Locked   string `xml:"wc-locked,attr"`
+			Item     string   `xml:"item,attr"`
+			Props    string   `xml:"props,attr"`
+			Revision string   `xml:"revision,attr"`
+			Tree     string   `xml:"tree-conflicted,attr"`
+			Copied   string   `xml:"copied,attr"`
+			Locked   string   `xml:"wc-locked,attr"`
+			Lock     *xmlLock `xml:"lock"`
 		} `xml:"wc-status"`
 		Repo *struct {
-			Item string `xml:"item,attr"`
+			Item string   `xml:"item,attr"`
+			Lock *xmlLock `xml:"lock"`
 		} `xml:"repos-status"`
 	}
 	var x struct {
@@ -152,7 +158,12 @@ func (c *Client) Status(ctx context.Context, o Opts, wc string, remote bool) ([]
 		if e.Repo != nil && e.Repo.Item != "none" {
 			ch.RepoItem = e.Repo.Item
 		}
-		if ch.Item == "normal" && (ch.Props == "none" || ch.Props == "normal") && !ch.TreeConflict && ch.RepoItem == "" && !ch.Locked {
+		var repoLock *xmlLock
+		if e.Repo != nil {
+			repoLock = e.Repo.Lock
+		}
+		ch.LockState, ch.Lock = lockState(e.WC.Lock.lock(), repoLock.lock(), remote)
+		if ch.Item == "normal" && (ch.Props == "none" || ch.Props == "normal") && !ch.TreeConflict && ch.RepoItem == "" && !ch.Locked && ch.LockState == "" {
 			return // only shown because -u was given and nothing differs
 		}
 		if st, err := os.Stat(filepath.Join(root, filepath.FromSlash(ch.Path))); err == nil {
@@ -250,10 +261,11 @@ func (c *Client) Log(ctx context.Context, o Opts, target string, from, limit int
 
 // Entry is one item in a repository folder.
 type Entry struct {
-	Name   string `json:"name"`
-	Kind   string `json:"kind"` // file or dir
-	Size   int64  `json:"size"`
-	Commit Commit `json:"commit"`
+	Name   string    `json:"name"`
+	Kind   string    `json:"kind"` // file or dir
+	Size   int64     `json:"size"`
+	Commit Commit    `json:"commit"`
+	Lock   *LockInfo `json:"lock,omitempty"` // who has it locked, if anyone
 }
 
 // List lists a repository folder (svn list URL).
@@ -268,6 +280,7 @@ func (c *Client) List(ctx context.Context, o Opts, url string) ([]Entry, error) 
 			Name   string     `xml:"name"`
 			Size   int64      `xml:"size"`
 			Commit *xmlCommit `xml:"commit"`
+			Lock   *xmlLock   `xml:"lock"`
 		} `xml:"list>entry"`
 	}
 	if err := xml.Unmarshal(out, &x); err != nil {
@@ -275,7 +288,7 @@ func (c *Client) List(ctx context.Context, o Opts, url string) ([]Entry, error) 
 	}
 	entries := make([]Entry, 0, len(x.Entries))
 	for _, e := range x.Entries {
-		entries = append(entries, Entry{Name: e.Name, Kind: e.Kind, Size: e.Size, Commit: e.Commit.commit()})
+		entries = append(entries, Entry{Name: e.Name, Kind: e.Kind, Size: e.Size, Commit: e.Commit.commit(), Lock: e.Lock.lock()})
 	}
 	// folders first, then by name
 	slices.SortFunc(entries, func(a, b Entry) int {
@@ -410,12 +423,22 @@ func (c *Client) Cleanup(ctx context.Context, o Opts, wc string) error {
 // Commit commits exactly paths (--depth empty: a listed folder does not take
 // its unlisted contents along) with message, and returns the new revision.
 func (c *Client) Commit(ctx context.Context, o Opts, message string, paths []string) (int, error) {
+	return c.CommitKeepLocks(ctx, o, message, paths, false)
+}
+
+// CommitKeepLocks is Commit; keepLocks keeps this working copy's locks on
+// the committed files (normally a commit releases them).
+func (c *Client) CommitKeepLocks(ctx context.Context, o Opts, message string, paths []string, keepLocks bool) (int, error) {
 	f, err := messageFile(message)
 	if err != nil {
 		return 0, err
 	}
 	defer os.Remove(f)
-	args := []string{"commit", "--depth", "empty", "-F", f, "--encoding", "UTF-8", "--"}
+	args := []string{"commit", "--depth", "empty", "-F", f, "--encoding", "UTF-8"}
+	if keepLocks {
+		args = append(args, "--no-unlock")
+	}
+	args = append(args, "--")
 	out, err := c.run(ctx, o, nil, append(args, paths...)...)
 	if err != nil {
 		return 0, err

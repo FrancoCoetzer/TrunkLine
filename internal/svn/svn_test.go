@@ -204,6 +204,8 @@ func TestErrorKinds(t *testing.T) {
 		{"svn: E170013: Unable to connect\nsvn: E230001: Server SSL certificate verification failed: issuer is not trusted", KindCert},
 		{"svn: E155011: File '/x/f.txt' is out of date", KindConflict},
 		{"svn: E155004: Run 'svn cleanup' to remove locks", KindLocked},
+		{"svn: E160039: User 'alice' does not own lock on path '/trunk/README.md' (currently locked by 'franco')", KindLockConflict},
+		{"svn: warning: W160035: Path '/trunk/x' is already locked by user 'franco' in filesystem 'u'\nsvn: E200009: One or more locks could not be obtained", KindLockConflict},
 		{"svn: E170000: URL 'file:///x' doesn't exist", KindOther},
 	} {
 		if got := newError(tc.stderr, nil).Kind; got != tc.want {

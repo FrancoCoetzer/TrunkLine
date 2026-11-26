@@ -67,7 +67,7 @@ func TestCommitNewFolder(t *testing.T) {
 	// Picking an unversioned folder commits it with everything inside.
 	put(t, filepath.Join(wc, "lib", "deep", "a.c"))
 	put(t, filepath.Join(wc, "other.c"))
-	rev, err := a.Commit(wc, "lib", []string{"lib"}, false)
+	rev, err := a.Commit(wc, "lib", []string{"lib"}, false, false)
 	if err != nil || rev != 1 {
 		t.Fatalf("commit: r%d, %v", rev, err)
 	}
@@ -85,7 +85,7 @@ func TestCommitTakesAddedParent(t *testing.T) {
 	if err := a.Add(wc, []string{"dir"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := a.Commit(wc, "a only", []string{"dir/a.c"}, false); err != nil {
+	if _, err := a.Commit(wc, "a only", []string{"dir/a.c"}, false, false); err != nil {
 		t.Fatal(err)
 	}
 	if st := status(t, a, wc); len(st) != 1 || st["dir/b.c"] != "added" {
@@ -99,7 +99,7 @@ func TestCommitTakesAddedParent(t *testing.T) {
 	if st := status(t, a, wc); st["dir/a.c"] != "missing" {
 		t.Fatalf("status = %v", st)
 	}
-	if _, err := a.Commit(wc, "rm a", []string{"dir/a.c"}, false); err != nil {
+	if _, err := a.Commit(wc, "rm a", []string{"dir/a.c"}, false, false); err != nil {
 		t.Fatal(err)
 	}
 	if st := status(t, a, wc); len(st) != 1 {
@@ -109,10 +109,10 @@ func TestCommitTakesAddedParent(t *testing.T) {
 
 func TestCommitRefuses(t *testing.T) {
 	a, wc := testApp(t)
-	if _, err := a.Commit(wc, "  ", []string{"x"}, false); err == nil {
+	if _, err := a.Commit(wc, "  ", []string{"x"}, false, false); err == nil {
 		t.Error("empty message accepted")
 	}
-	if _, err := a.Commit(wc, "m", nil, false); err == nil {
+	if _, err := a.Commit(wc, "m", nil, false, false); err == nil {
 		t.Error("nothing to commit accepted")
 	}
 }
@@ -133,7 +133,7 @@ func TestExportImportRefuse(t *testing.T) {
 		t.Fatal(err)
 	}
 	put(t, filepath.Join(wc, "f.c"))
-	if _, err := a.Commit(wc, "f", []string{"f.c"}, false); err != nil {
+	if _, err := a.Commit(wc, "f", []string{"f.c"}, false, false); err != nil {
 		t.Fatal(err)
 	}
 	src := t.TempDir()
@@ -156,7 +156,7 @@ func TestExportImportRefuse(t *testing.T) {
 func TestBlameFile(t *testing.T) {
 	a, wc := testApp(t)
 	put(t, filepath.Join(wc, "src", "a.c"))
-	if _, err := a.Commit(wc, "a", []string{"src"}, false); err != nil {
+	if _, err := a.Commit(wc, "a", []string{"src"}, false, false); err != nil {
 		t.Fatal(err)
 	}
 	b, err := a.BlameFile(wc, "src/a.c")
@@ -186,7 +186,7 @@ func TestConflictMarkersGuard(t *testing.T) {
 	if err := os.WriteFile(f, []byte("init();\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := a.Commit(wc, "add", []string{"main.c"}, false); err != nil {
+	if _, err := a.Commit(wc, "add", []string{"main.c"}, false, false); err != nil {
 		t.Fatal(err)
 	}
 	// Someone else changes the line.
@@ -224,7 +224,7 @@ func TestConflictMarkersGuard(t *testing.T) {
 	if err := a.Resolve(wc, "working", []string{"main.c"}, true); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := a.Commit(wc, "oops", []string{"main.c"}, false); err == nil || !strings.Contains(err.Error(), `"kind":"markers"`) {
+	if _, err := a.Commit(wc, "oops", []string{"main.c"}, false, false); err == nil || !strings.Contains(err.Error(), `"kind":"markers"`) {
 		t.Fatalf("commit with markers: %v", err)
 	}
 
@@ -232,7 +232,106 @@ func TestConflictMarkersGuard(t *testing.T) {
 	if err := os.WriteFile(f, []byte("init(); // mine\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := a.Commit(wc, "fixed", []string{"main.c"}, false); err != nil {
+	if _, err := a.Commit(wc, "fixed", []string{"main.c"}, false, false); err != nil {
 		t.Fatalf("commit after fixing: %v", err)
+	}
+}
+
+func TestLockFiles(t *testing.T) {
+	a, wc := testApp(t)
+	ctx := context.Background()
+	info, err := a.Info(wc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	put(t, filepath.Join(wc, "cad.step"))
+	put(t, filepath.Join(wc, "code.c"))
+	if err := a.Add(wc, []string{"cad.step", "code.c"}); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := exec.Command("svn", "propset", "svn:needs-lock", "*", filepath.Join(wc, "cad.step")).CombinedOutput(); err != nil {
+		t.Fatalf("%v %s", err, out)
+	}
+	if _, err := a.Commit(wc, "add", []string{"cad.step", "code.c"}, false, false); err != nil {
+		t.Fatal(err)
+	}
+
+	locks := func(w string) map[string]LockedFile {
+		t.Helper()
+		l, err := a.Locks(w)
+		if err != nil {
+			t.Fatal(err)
+		}
+		m := map[string]LockedFile{}
+		for _, f := range l {
+			m[f.Path] = f
+		}
+		return m
+	}
+	if l := locks(wc); len(l) != 1 || !l["cad.step"].NeedsLock || l["cad.step"].State != "" {
+		t.Errorf("before locking: %+v", l)
+	}
+
+	// Another working copy locks both.
+	other := filepath.Join(t.TempDir(), "other")
+	if err := a.svn.Checkout(ctx, svn.Opts{}, info.URL, other, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.LockFiles(other, []string{"cad.step", "code.c"}, "editing", false); err != nil {
+		t.Fatal(err)
+	}
+	l := locks(wc)
+	if len(l) != 2 || l["cad.step"].State != "other" || l["code.c"].State != "other" || l["code.c"].Lock.Comment != "editing" || l["code.c"].NeedsLock {
+		t.Errorf("seen from here: %+v", l)
+	}
+
+	// Locking here: refused, saying who.
+	err = a.LockFiles(wc, []string{"cad.step"}, "", false)
+	if err == nil || !strings.Contains(err.Error(), `"kind":"lockconflict"`) || !strings.Contains(err.Error(), "/cad.step (locked by ") {
+		t.Fatalf("lock conflict: %v", err)
+	}
+	// Taking it over works; it's ours now.
+	if err := a.LockFiles(wc, []string{"cad.step"}, "mine now", true); err != nil {
+		t.Fatal(err)
+	}
+	if l := locks(wc); l["cad.step"].State != "mine" || l["cad.step"].Lock.Comment != "mine now" {
+		t.Errorf("after taking over: %+v", l["cad.step"])
+	}
+	if l := locks(other); l["cad.step"].State != "stolen" {
+		t.Errorf("the other copy after the takeover: %+v", l["cad.step"])
+	}
+
+	// Commit with keepLocks keeps it; a plain commit releases it.
+	if err := os.Chmod(filepath.Join(wc, "cad.step"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(wc, "cad.step"), []byte("v2\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.Commit(wc, "v2", []string{"cad.step"}, false, true); err != nil {
+		t.Fatal(err)
+	}
+	if l := locks(wc); l["cad.step"].State != "mine" {
+		t.Errorf("after commit keeping locks: %+v", l["cad.step"])
+	}
+	if err := os.WriteFile(filepath.Join(wc, "cad.step"), []byte("v3\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.Commit(wc, "v3", []string{"cad.step"}, false, false); err != nil {
+		t.Fatal(err)
+	}
+	if l := locks(wc); l["cad.step"].State != "" {
+		t.Errorf("after a plain commit: %+v", l["cad.step"])
+	}
+
+	// The other copy's code.c lock: break it from here.
+	if err := a.UnlockFiles(wc, []string{"code.c"}, false); err == nil {
+		t.Error("unlocking someone else's lock without breaking it worked")
+	}
+	if err := a.UnlockFiles(wc, []string{"code.c"}, true); err != nil {
+		t.Fatal(err)
+	}
+	if l := locks(wc); l["code.c"].State != "" {
+		t.Errorf("after breaking: %+v", l["code.c"])
 	}
 }

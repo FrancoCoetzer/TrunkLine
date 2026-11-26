@@ -68,12 +68,13 @@ func (c *Client) Version(ctx context.Context) (string, error) {
 type Kind int
 
 const (
-	KindOther    Kind = iota
-	KindAuth          // a username and password are needed, or were wrong
-	KindCert          // the server's certificate is not trusted
-	KindConflict      // the working copy is out of date or has conflicts
-	KindLocked        // the working copy is locked: svn cleanup
-	KindCanceled      // the user canceled
+	KindOther        Kind = iota
+	KindAuth              // a username and password are needed, or were wrong
+	KindCert              // the server's certificate is not trusted
+	KindConflict          // the working copy is out of date or has conflicts
+	KindLocked            // the working copy is locked: svn cleanup
+	KindCanceled          // the user canceled
+	KindLockConflict      // a file is locked by someone else, or this working copy's lock was taken
 )
 
 // Error is a failed svn run.
@@ -85,7 +86,7 @@ type Error struct {
 
 func (e *Error) Error() string { return e.Msg }
 
-var codeRe = regexp.MustCompile(`\b(E\d{6}):`)
+var codeRe = regexp.MustCompile(`\b([EW]\d{6}):`)
 
 // Codes that need a login. E215004 is "no more credentials", which is what
 // --non-interactive gives instead of a prompt; E170001 is "authorization
@@ -95,6 +96,11 @@ var (
 	certCodes     = []string{"E230001"}
 	conflictCodes = []string{"E155011", "E160028", "E170004", "E155015", "E160024"}
 	lockedCodes   = []string{"E155004", "E155037"}
+	// W160035: already locked by someone else; E200009: some locks weren't
+	// obtained; E160037: committing a file whose lock was taken over (same
+	// user, another working copy); E160039: committing or unlocking a file
+	// another user has locked; E195022: unlocking a file locked by someone else.
+	lockConflictCodes = []string{"W160035", "E200009", "E160037", "E160039", "E195022"}
 )
 
 func newError(stderr string, err error) *Error {
@@ -111,6 +117,8 @@ func newError(stderr string, err error) *Error {
 		e.Kind = KindCert
 	case e.has(authCodes):
 		e.Kind = KindAuth
+	case e.has(lockConflictCodes):
+		e.Kind = KindLockConflict
 	case e.has(lockedCodes):
 		e.Kind = KindLocked
 	case e.has(conflictCodes):
