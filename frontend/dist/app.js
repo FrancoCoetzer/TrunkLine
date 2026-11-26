@@ -480,13 +480,27 @@ $("openFileBtn").onclick = () => state.diffPath && Go().Open(state.view.path, st
 
 // ---- Commit, revert, add, resolve ----------------------------------------------------------
 
+// withMarkersCheck runs f(false); if Go refuses because conflict markers are
+// still in a file, it asks, and runs f(true) only if the user insists.
+async function withMarkersCheck(f, okLabel) {
+  try {
+    return await f(false);
+  } catch (e) {
+    const err = parseErr(e);
+    if (err.kind !== "markers") throw err;
+    const msg = err.message + "\n\nOnly continue if those lines are meant to be in the file.";
+    if (!await confirmDanger("Conflict markers left in the file", msg, okLabel)) throw { kind: "canceled", message: "Canceled" };
+    return await f(true);
+  }
+}
+
 async function commit() {
   const sel = checkedChanges();
   const msg = $("commitMsg").value;
   if (!sel.length) return toast("Tick the changes to commit.");
   if (!msg.trim()) { $("commitMsg").focus(); return toast("Write a commit message first."); }
   await busy($("commitBtn"), async () => {
-    const rev = await call("Commit", state.view.path, msg, sel.map(c => c.path));
+    const rev = await withMarkersCheck(allow => call("Commit", state.view.path, msg, sel.map(c => c.path), allow), "Commit anyway");
     $("commitMsg").value = "";
     state.log = [];
     toast(rev ? `Committed revision ${rev}.` : "Committed.", "ok");
@@ -520,7 +534,10 @@ $("addBtn").onclick = () => busy($("addBtn"), async () => {
 $("resolveBtn").onclick = () => busy($("resolveBtn"), async () => {
   const sel = checkedChanges().filter(c => c.item === "conflicted" || c.props === "conflicted" || c.treeConflict);
   if (!sel.length) return toast("Tick the conflicted files to resolve.");
-  await call("Resolve", state.view.path, $("resolveHow").value, sel.map(c => c.path));
+  const how = $("resolveHow").value;
+  if (!how) { $("resolveHow").focus(); return toast("Choose how to resolve first: keep mine, take theirs, or mark your edited file resolved."); }
+  await withMarkersCheck(allow => call("Resolve", state.view.path, how, sel.map(c => c.path), allow), "Mark resolved anyway");
+  $("resolveHow").value = "";
   toast(`Resolved ${sel.length} conflict${sel.length === 1 ? "" : "s"}.`, "ok");
   await refreshWc(false);
 });

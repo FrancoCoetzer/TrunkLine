@@ -210,10 +210,11 @@
               <button class="danger" id="revertBtn" title="Throw away local changes to the ticked files">Revert</button>
               <button id="addBtn" title="svn add the ticked unversioned files">Add</button>
               <span id="resolveBox" hidden>
-                <select id="resolveHow">
-                  <option value="working">Mark resolved (keep file as edited)</option>
-                  <option value="mine-full">Resolve: keep mine</option>
-                  <option value="theirs-full">Resolve: take theirs</option>
+                <select id="resolveHow" aria-label="How to resolve the ticked conflicts">
+                  <option value="" selected disabled>Choose how to resolve…</option>
+                  <option value="mine-full">Keep mine (my whole file)</option>
+                  <option value="theirs-full">Take theirs (their whole file)</option>
+                  <option value="working">I edited the file: mark resolved</option>
                 </select>
                 <button id="resolveBtn">Resolve</button>
               </span>

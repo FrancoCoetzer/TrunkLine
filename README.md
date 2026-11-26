@@ -14,7 +14,9 @@ that works the same on both, built with Go and [Wails](https://wails.io/).
 - **Changes**: what `svn status` shows, with a diff of the picked file. Tick
   files and commit (Ctrl+Enter). New files and folders are added for you, and
   files deleted from disk are deleted in the repository. You can also revert,
-  add and resolve conflicts (keep the file as edited, keep mine or take theirs).
+  add and resolve conflicts (keep mine, take theirs, or mark your edited file
+  resolved). A file that still has conflict markers (`<<<<<<<`) in it can't be
+  marked resolved or committed by accident.
 - **Update**, with svn's output shown as it runs. **Check server** shows what an
   update would bring in without changing anything (`svn status -u`).
 - **History**: the log of the working copy's URL. Click a revision to see its

@@ -543,7 +543,11 @@ func abs(wc string, rel []string) []string {
 // revision. Unversioned paths are added first (folders with their contents),
 // missing ones deleted, and a new parent folder is taken along, since svn
 // cannot commit a file whose folder is not in the repository yet.
-func (a *App) Commit(wc, message string, rel []string) (int, error) {
+//
+// Files that still have conflict markers in them (a conflict marked resolved
+// without editing it) are refused, unless allowMarkers: the user confirmed
+// the markers are meant to be there.
+func (a *App) Commit(wc, message string, rel []string, allowMarkers bool) (int, error) {
 	c, err := a.client()
 	if err != nil {
 		return 0, err
@@ -553,6 +557,11 @@ func (a *App) Commit(wc, message string, rel []string) (int, error) {
 	}
 	if len(rel) == 0 {
 		return 0, &appError{Kind: "other", Message: "Pick at least one change to commit."}
+	}
+	if !allowMarkers {
+		if err := markersError(wc, rel, "Commit"); err != nil {
+			return 0, err
+		}
 	}
 	host := a.wcHost(wc)
 	o := a.opts(host)
@@ -632,6 +641,29 @@ func (a *App) Commit(wc, message string, rel []string) (int, error) {
 	return rev, a.wrap(err, host)
 }
 
+// markersError is a "markers" error listing the files under wc that still
+// have conflict markers, or nil when none do.
+func markersError(wc string, rel []string, action string) error {
+	found := svn.FilesWithConflictMarkers(abs(wc, rel))
+	if len(found) == 0 {
+		return nil
+	}
+	root := filepath.Clean(wc) + string(filepath.Separator)
+	var list []string
+	for i, f := range found {
+		if i == 5 {
+			list = append(list, fmt.Sprintf("… and %d more", len(found)-5))
+			break
+		}
+		path, line, _ := strings.Cut(strings.TrimPrefix(f, root), ":")
+		list = append(list, fmt.Sprintf("%s (line %s)", filepath.ToSlash(path), line))
+	}
+	return &appError{Kind: "markers", Message: fmt.Sprintf(
+		"%s stopped: conflict markers (<<<<<<<, =======, >>>>>>>) are still in:\n\n  %s\n\n"+
+			"Edit the file to the text you want and delete the marker lines, or resolve with "+
+			"\"keep mine\" or \"take theirs\".", action, strings.Join(list, "\n  "))}
+}
+
 func parent(p string) string {
 	i := strings.LastIndex(p, "/")
 	if i < 0 {
@@ -661,11 +693,17 @@ func (a *App) Revert(wc string, rel []string) error {
 	return a.wrap(c.Revert(a.ctx, a.opts(host), abs(wc, rel)...), host)
 }
 
-// Resolve marks conflicts resolved: accept is "working", "mine-full" or
-// "theirs-full".
-func (a *App) Resolve(wc, accept string, rel []string) error {
+// Resolve marks conflicts resolved: accept is "working" (the file as the user
+// edited it), "mine-full" or "theirs-full". "working" is refused while the
+// file still has conflict markers, unless allowMarkers.
+func (a *App) Resolve(wc, accept string, rel []string, allowMarkers bool) error {
 	if !slices.Contains([]string{"working", "mine-full", "theirs-full"}, accept) {
 		return errors.New("unknown resolution " + accept)
+	}
+	if accept == "working" && !allowMarkers {
+		if err := markersError(wc, rel, "Mark resolved"); err != nil {
+			return err
+		}
 	}
 	c, err := a.client()
 	if err != nil {

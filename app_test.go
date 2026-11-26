@@ -67,7 +67,7 @@ func TestCommitNewFolder(t *testing.T) {
 	// Picking an unversioned folder commits it with everything inside.
 	put(t, filepath.Join(wc, "lib", "deep", "a.c"))
 	put(t, filepath.Join(wc, "other.c"))
-	rev, err := a.Commit(wc, "lib", []string{"lib"})
+	rev, err := a.Commit(wc, "lib", []string{"lib"}, false)
 	if err != nil || rev != 1 {
 		t.Fatalf("commit: r%d, %v", rev, err)
 	}
@@ -85,7 +85,7 @@ func TestCommitTakesAddedParent(t *testing.T) {
 	if err := a.Add(wc, []string{"dir"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := a.Commit(wc, "a only", []string{"dir/a.c"}); err != nil {
+	if _, err := a.Commit(wc, "a only", []string{"dir/a.c"}, false); err != nil {
 		t.Fatal(err)
 	}
 	if st := status(t, a, wc); len(st) != 1 || st["dir/b.c"] != "added" {
@@ -99,7 +99,7 @@ func TestCommitTakesAddedParent(t *testing.T) {
 	if st := status(t, a, wc); st["dir/a.c"] != "missing" {
 		t.Fatalf("status = %v", st)
 	}
-	if _, err := a.Commit(wc, "rm a", []string{"dir/a.c"}); err != nil {
+	if _, err := a.Commit(wc, "rm a", []string{"dir/a.c"}, false); err != nil {
 		t.Fatal(err)
 	}
 	if st := status(t, a, wc); len(st) != 1 {
@@ -109,10 +109,10 @@ func TestCommitTakesAddedParent(t *testing.T) {
 
 func TestCommitRefuses(t *testing.T) {
 	a, wc := testApp(t)
-	if _, err := a.Commit(wc, "  ", []string{"x"}); err == nil {
+	if _, err := a.Commit(wc, "  ", []string{"x"}, false); err == nil {
 		t.Error("empty message accepted")
 	}
-	if _, err := a.Commit(wc, "m", nil); err == nil {
+	if _, err := a.Commit(wc, "m", nil, false); err == nil {
 		t.Error("nothing to commit accepted")
 	}
 }
@@ -133,7 +133,7 @@ func TestExportImportRefuse(t *testing.T) {
 		t.Fatal(err)
 	}
 	put(t, filepath.Join(wc, "f.c"))
-	if _, err := a.Commit(wc, "f", []string{"f.c"}); err != nil {
+	if _, err := a.Commit(wc, "f", []string{"f.c"}, false); err != nil {
 		t.Fatal(err)
 	}
 	src := t.TempDir()
@@ -156,7 +156,7 @@ func TestExportImportRefuse(t *testing.T) {
 func TestBlameFile(t *testing.T) {
 	a, wc := testApp(t)
 	put(t, filepath.Join(wc, "src", "a.c"))
-	if _, err := a.Commit(wc, "a", []string{"src"}); err != nil {
+	if _, err := a.Commit(wc, "a", []string{"src"}, false); err != nil {
 		t.Fatal(err)
 	}
 	b, err := a.BlameFile(wc, "src/a.c")
@@ -171,5 +171,68 @@ func TestBlameFile(t *testing.T) {
 	}
 	if b, err := a.BlameURL(b.RepoRoot + "/src/a.c@1"); err != nil || b.Title != "^/src/a.c@1" {
 		t.Errorf("BlameURL = %+v, %v", b, err)
+	}
+}
+
+// The mistake this guards against: a conflict marked resolved without
+// editing the file, then committed with the markers in it.
+func TestConflictMarkersGuard(t *testing.T) {
+	a, wc := testApp(t)
+	info, err := a.Info(wc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := filepath.Join(wc, "main.c")
+	if err := os.WriteFile(f, []byte("init();\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.Commit(wc, "add", []string{"main.c"}, false); err != nil {
+		t.Fatal(err)
+	}
+	// Someone else changes the line.
+	other := filepath.Join(t.TempDir(), "other")
+	if err := a.svn.Checkout(context.Background(), svn.Opts{}, info.URL, other, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(other, "main.c"), []byte("init(); // theirs\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.svn.Commit(context.Background(), svn.Opts{}, "theirs", []string{filepath.Join(other, "main.c")}); err != nil {
+		t.Fatal(err)
+	}
+	// We change it too, and update into a conflict.
+	if err := os.WriteFile(f, []byte("init(); // mine\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.svn.Update(context.Background(), svn.Opts{}, wc, nil); err != nil {
+		t.Fatal(err)
+	}
+	if st := status(t, a, wc); st["main.c"] != "conflicted" {
+		t.Fatalf("expected a conflict: %v", st)
+	}
+
+	// "Mark resolved" without editing: refused, and the conflict stays.
+	err = a.Resolve(wc, "working", []string{"main.c"}, false)
+	if err == nil || !strings.Contains(err.Error(), `"kind":"markers"`) || !strings.Contains(err.Error(), "main.c (line 1)") {
+		t.Fatalf("resolve with markers: %v", err)
+	}
+	if st := status(t, a, wc); st["main.c"] != "conflicted" {
+		t.Errorf("refused resolve still resolved it: %v", st)
+	}
+
+	// Resolved anyway (the user insisted), then committed: refused too.
+	if err := a.Resolve(wc, "working", []string{"main.c"}, true); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.Commit(wc, "oops", []string{"main.c"}, false); err == nil || !strings.Contains(err.Error(), `"kind":"markers"`) {
+		t.Fatalf("commit with markers: %v", err)
+	}
+
+	// Fixed by hand: both go through.
+	if err := os.WriteFile(f, []byte("init(); // mine\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.Commit(wc, "fixed", []string{"main.c"}, false); err != nil {
+		t.Fatalf("commit after fixing: %v", err)
 	}
 }
