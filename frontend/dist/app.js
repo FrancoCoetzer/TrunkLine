@@ -163,6 +163,12 @@ function fmtSize(n) {
 
 function sep() { return state.startup && state.startup.os === "windows" ? "\\" : "/"; }
 
+// readable shows a repository URL or path (svn gives them URL-encoded:
+// caf%C3%A9.txt) the way people write it (café.txt).
+function readable(u) {
+  try { return decodeURI(u); } catch { return u; }
+}
+
 // encodePath makes a repository path safe to put in a URL.
 function encodePath(p) { return p.split("/").map(encodeURIComponent).join("/"); }
 
@@ -604,7 +610,7 @@ async function refreshWc(remote) {
     const [info, st] = await Promise.all([call("Info", path), call("Status", path, remote)]);
     if (!state.view || state.view.path !== path) return;
     state.info = info;
-    $("wcUrl").textContent = info.relativeUrl || info.url;
+    $("wcUrl").textContent = readable(info.relativeUrl || info.url);
     showBranchChip(info.relativeUrl || "");
     $("wcUrl").title = info.url;
     $("wcRev").textContent = "r" + info.revision;
@@ -743,7 +749,7 @@ function renderDiff(target, text) {
     target.append(el("div", { class: "placeholder" }, "No text changes to show."));
     return;
   }
-  const lines = text.split("\n");
+  const lines = text.split(/\r?\n/); // files with Windows line endings: no stray \r on each line
   const frag = document.createDocumentFragment();
   for (const l of lines.slice(0, MAX_DIFF_LINES)) {
     let cls = "";
@@ -1851,7 +1857,7 @@ async function openBlame(load, note = "", rel = null) {
 
 function renderBlame() {
   const lines = blame.lines;
-  $("blameTitle").textContent = "Blame: " + blame.title;
+  $("blameTitle").textContent = "Blame: " + readable(blame.title);
   const revs = new Set(lines.map(l => l.revision));
   $("blameStats").textContent = `${lines.length} lines · ${revs.size} revision${revs.size === 1 ? "" : "s"}`;
   $("blameCommit").textContent = (blameNote ? blameNote + "\n" : "") +
