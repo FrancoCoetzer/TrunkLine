@@ -1178,6 +1178,21 @@ async function newBranch(kind) {
 
 $("newBranchBtn").onclick = () => state.branches && newBranch("branch");
 $("newTagBtn").onclick = () => state.branches && newBranch("tag");
+$("relocateBtn").onclick = async () => {
+  if (!state.info) return;
+  $("relocateOld").value = state.info.repoRoot;
+  $("relocateNew").value = state.info.repoRoot;
+  const r = ask($("relocateDlg"));
+  $("relocateNew").select();
+  if (await r !== "ok") return;
+  try {
+    const url = await call("Relocate", state.view.path, $("relocateNew").value);
+    await reloadLists();
+    await openWc(state.view.path);
+    toast("This working copy now uses " + url, "ok");
+  } catch (e) { report(e); }
+};
+
 $("branchesRefreshBtn").onclick = () => busy($("branchesRefreshBtn"), loadBranches);
 $("switchUrlBtn").onclick = async () => {
   $("switchUrl").value = state.branches ? state.branches.url : (state.info ? state.info.url : "");

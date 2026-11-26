@@ -269,6 +269,7 @@
           <button class="primary" id="newBranchBtn">New branch…</button>
           <button id="newTagBtn" title="A snapshot of the code, e.g. for a release">New tag…</button>
           <button id="switchUrlBtn" title="Switch to any folder of this repository by URL">Switch to URL…</button>
+          <button class="ghost" id="relocateBtn" title="The server's address changed (e.g. http became https): point this working copy at it">Server moved…</button>
           <button class="ghost" id="branchesRefreshBtn">Refresh</button>
           <span style="flex:1"></span>
           <span class="muted" id="branchesInfo"></span>
@@ -413,6 +414,16 @@
   <label style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="branchSwitch"> Switch my working copy to it afterwards</label>
   <p id="branchNote" class="warn-text"></p>
   <div class="actions"><button value="cancel" formnovalidate>Cancel</button><button class="primary" value="ok" id="branchOk">Create</button></div>
+</form></dialog>
+
+<dialog id="relocateDlg"><form method="dialog">
+  <h3>The server moved</h3>
+  <p>If the repository now has a new address (a new server name, or https instead of http), point this working copy
+    at it. Nothing changes on the server, and your local changes stay. svn checks that it's the same repository.</p>
+  <div class="field"><label>Current address</label><input id="relocateOld" readonly></div>
+  <div class="field"><label for="relocateNew">New address</label><input id="relocateNew"></div>
+  <p class="muted">Other working copies of this repository need moving too: do this in each.</p>
+  <div class="actions"><button value="cancel" formnovalidate>Cancel</button><button class="primary" value="ok">Move</button></div>
 </form></dialog>
 
 <dialog id="urlDlg"><form method="dialog">

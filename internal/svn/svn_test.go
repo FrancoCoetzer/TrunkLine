@@ -390,3 +390,38 @@ func TestIgnore(t *testing.T) {
 		t.Errorf("after delete: %q", v)
 	}
 }
+
+func TestRelocate(t *testing.T) {
+	c, root, wc := newRepo(t)
+	ctx := context.Background()
+	oldPath := strings.TrimPrefix(root, "file://")
+
+	// The same repository at a new address (a copy keeps its UUID).
+	newPath := filepath.Join(t.TempDir(), "moved")
+	if out, err := exec.Command("svnadmin", "hotcopy", oldPath, newPath).CombinedOutput(); err != nil {
+		t.Fatalf("%v %s", err, out)
+	}
+	newRoot := "file://" + filepath.ToSlash(newPath)
+	if err := c.Relocate(ctx, Opts{}, root, newRoot, wc); err != nil {
+		t.Fatal(err)
+	}
+	info, err := c.Info(ctx, Opts{}, wc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.RepoRoot != newRoot || info.URL != newRoot+"/trunk" {
+		t.Errorf("after relocate: root %s url %s", info.RepoRoot, info.URL)
+	}
+
+	// A different repository is refused, and the working copy is unchanged.
+	other := filepath.Join(t.TempDir(), "other")
+	if out, err := exec.Command("svnadmin", "create", other).CombinedOutput(); err != nil {
+		t.Fatalf("%v %s", err, out)
+	}
+	if err := c.Relocate(ctx, Opts{}, newRoot, "file://"+filepath.ToSlash(other), wc); err == nil {
+		t.Error("relocating to a different repository was allowed")
+	}
+	if info, _ := c.Info(ctx, Opts{}, wc); info.RepoRoot != newRoot {
+		t.Errorf("refused relocate changed the working copy: %s", info.RepoRoot)
+	}
+}

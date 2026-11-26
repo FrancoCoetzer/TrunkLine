@@ -73,3 +73,12 @@ func (c *Client) AddIgnore(ctx context.Context, o Opts, dir, pattern string, rec
 	}
 	return true, c.SetProp(ctx, o, prop, strings.Join(append(lines, pattern), "\n")+"\n", dir)
 }
+
+// Relocate points the working copy wc at the same repository under a new
+// address: every URL starting with from is rewritten to start with to (for
+// example http://svn.old/repo to https://svn.new/repo). svn refuses when the
+// repository at the new address isn't the same one (a different UUID).
+func (c *Client) Relocate(ctx context.Context, o Opts, from, to, wc string) error {
+	_, err := c.run(ctx, o, nil, "relocate", "--", from, to, wc)
+	return err
+}

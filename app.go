@@ -1290,3 +1290,51 @@ func (a *App) Ignore(wc string, rel []string, byExt, recursive bool) (int, error
 	}
 	return added, nil
 }
+
+// --- Relocate ---------------------------------------------------------------------
+
+// Relocate points the working copy at its repository's new address (the
+// server moved, or http became https): newRoot replaces the repository root.
+// Saved repositories under the old root are rewritten too. It returns the
+// working copy's new URL.
+func (a *App) Relocate(wc, newRoot string) (string, error) {
+	c, err := a.client()
+	if err != nil {
+		return "", err
+	}
+	newRoot = strings.TrimRight(strings.TrimSpace(newRoot), "/")
+	u, err := url.Parse(newRoot)
+	if err != nil || !slices.Contains([]string{"http", "https", "svn", "svn+ssh", "file"}, u.Scheme) {
+		return "", &appError{Kind: "other", Message: "Give the repository's new address, starting with https://, http://, svn:// or svn+ssh://."}
+	}
+	host := a.wcHost(wc)
+	info, err := c.Info(a.ctx, a.opts(host), wc)
+	if err != nil {
+		return "", a.wrap(err, host)
+	}
+	oldRoot := info.RepoRoot
+	if newRoot == oldRoot {
+		return "", &appError{Kind: "other", Message: "That's the address it already uses."}
+	}
+	newHost := hostOf(newRoot)
+	if err := c.Relocate(a.ctx, a.opts(newHost), oldRoot, newRoot, wc); err != nil {
+		var e *svn.Error
+		if errors.As(err, &e) && strings.Contains(e.Msg, "UUID") {
+			return "", &appError{Kind: "other", Message: "The repository at " + newRoot + " isn't the same repository " +
+				"(svn compares their IDs), so the working copy can't move there. Check the address.\n\n" + e.Msg}
+		}
+		return "", a.wrap(err, newHost)
+	}
+	_ = a.cfg.Update(func(c *config.Config) {
+		for i, s := range c.Servers {
+			if s.URL == oldRoot || strings.HasPrefix(s.URL, oldRoot+"/") {
+				c.Servers[i].URL = newRoot + strings.TrimPrefix(s.URL, oldRoot)
+			}
+		}
+	})
+	info, err = a.Info(wc) // saves the new URL and root
+	if err != nil {
+		return "", err
+	}
+	return info.URL, nil
+}

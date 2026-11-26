@@ -539,3 +539,44 @@ func TestIgnoreFromChanges(t *testing.T) {
 		t.Errorf("status after committing the ignores = %v", st)
 	}
 }
+
+func TestRelocateApp(t *testing.T) {
+	a, wc := testApp(t)
+	info, err := a.Info(wc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := info.RepoRoot
+	if err := a.cfg.Update(func(c *config.Config) {
+		c.AddWorkingCopy(config.WorkingCopy{Name: "wc", Path: wc, URL: info.URL, RepoRoot: old})
+		c.AddServer(config.Server{Name: "repo", URL: old})
+		c.AddServer(config.Server{Name: "other", URL: "https://elsewhere/repo"})
+	}); err != nil {
+		t.Fatal(err)
+	}
+	moved := filepath.Join(t.TempDir(), "moved")
+	if out, err := exec.Command("svnadmin", "hotcopy", strings.TrimPrefix(old, "file://"), moved).CombinedOutput(); err != nil {
+		t.Fatalf("%v %s", err, out)
+	}
+	newRoot := "file://" + filepath.ToSlash(moved)
+
+	for _, bad := range []string{"", "ftp://x/repo", "not a url", old} {
+		if _, err := a.Relocate(wc, bad); err == nil {
+			t.Errorf("Relocate(%q) accepted", bad)
+		}
+	}
+	got, err := a.Relocate(wc, newRoot+"/")
+	if err != nil || got != newRoot {
+		t.Fatalf("relocate: %q %v", got, err)
+	}
+	a.cfg.Read(func(c *config.Config) {
+		if c.WorkingCopies[0].RepoRoot != newRoot || c.Servers[0].URL != newRoot || c.Servers[1].URL != "https://elsewhere/repo" {
+			t.Errorf("saved settings: %+v %+v", c.WorkingCopies, c.Servers)
+		}
+	})
+	// Still works against the new address.
+	put(t, filepath.Join(wc, "after-move.txt"))
+	if _, err := a.Commit(wc, "after the move", []string{"after-move.txt"}, false, false); err != nil {
+		t.Fatal(err)
+	}
+}
