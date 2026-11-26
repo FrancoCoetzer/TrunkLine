@@ -418,6 +418,20 @@
   <div class="actions"><button value="cancel" formnovalidate>Cancel</button><button class="primary" value="ok" id="branchOk">Create</button></div>
 </form></dialog>
 
+<dialog id="mergeDlg" style="width:min(760px,94vw)"><form method="dialog">
+  <h3 id="mergeTitle">Merge</h3>
+  <p id="mergeWhat"></p>
+  <div class="toolbar" style="padding:0;border:none">
+    <label style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="mergeAll" checked> All</label>
+    <span class="muted" id="mergeCount"></span>
+  </div>
+  <div style="max-height:45vh;overflow:auto;border:1px solid var(--line);border-radius:var(--radius)">
+    <table class="list"><tbody id="mergeRevs"></tbody></table>
+  </div>
+  <p class="muted" id="mergeHow"></p>
+  <div class="actions"><button value="cancel" formnovalidate>Cancel</button><button class="primary" value="ok" id="mergeOk">Merge</button></div>
+</form></dialog>
+
 <dialog id="relocateDlg"><form method="dialog">
   <h3>The server moved</h3>
   <p>If the repository now has a new address (a new server name, or https instead of http), point this working copy

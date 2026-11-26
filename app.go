@@ -82,7 +82,7 @@ func (a *App) wrap(err error, host string) error {
 	}
 	kinds := map[svn.Kind]string{
 		svn.KindAuth: "auth", svn.KindCert: "cert", svn.KindConflict: "conflict",
-		svn.KindLocked: "locked", svn.KindCanceled: "canceled", svn.KindLockConflict: "lockconflict", svn.KindNeedUpdate: "needupdate",
+		svn.KindLocked: "locked", svn.KindCanceled: "canceled", svn.KindLockConflict: "lockconflict", svn.KindNeedUpdate: "needupdate", svn.KindNeedClean: "needclean",
 	}
 	kind, ok := kinds[svn.KindOf(err)]
 	if !ok {
@@ -554,7 +554,14 @@ func abs(wc string, rel []string) []string {
 // Files that still have conflict markers in them (a conflict marked resolved
 // without editing it) are refused, unless allowMarkers: the user confirmed
 // the markers are meant to be there.
-func (a *App) Commit(wc, message string, rel []string, allowMarkers, keepLocks bool) (int, error) {
+// CommitOptions are the choices a commit can override.
+type CommitOptions struct {
+	AllowMarkers      bool `json:"allowMarkers"`      // commit files that still have conflict markers
+	KeepLocks         bool `json:"keepLocks"`         // keep this working copy's locks on the committed files
+	AllowPartialMerge bool `json:"allowPartialMerge"` // commit a merge record without all the other changes
+}
+
+func (a *App) Commit(wc, message string, rel []string, opt CommitOptions) (int, error) {
 	c, err := a.client()
 	if err != nil {
 		return 0, err
@@ -565,7 +572,7 @@ func (a *App) Commit(wc, message string, rel []string, allowMarkers, keepLocks b
 	if len(rel) == 0 {
 		return 0, &appError{Kind: "other", Message: "Pick at least one change to commit."}
 	}
-	if !allowMarkers {
+	if !opt.AllowMarkers {
 		if err := markersError(wc, rel, "Commit"); err != nil {
 			return 0, err
 		}
@@ -644,12 +651,55 @@ func (a *App) Commit(wc, message string, rel []string, allowMarkers, keepLocks b
 		list = append(list, t)
 	}
 	slices.Sort(list)
-	rev, err := c.CommitKeepLocks(a.ctx, o, message, abs(wc, list), keepLocks)
+	if !opt.AllowPartialMerge {
+		if err := a.partialMergeError(wc, list, changes); err != nil {
+			return 0, err
+		}
+	}
+	rev, err := c.CommitKeepLocks(a.ctx, o, message, abs(wc, list), opt.KeepLocks)
 	if svn.KindOf(err) == svn.KindLockConflict {
 		return 0, &appError{Kind: "lockconflict", Host: host, Message: "Commit stopped: you no longer hold the lock " +
 			"on a file you changed. Someone took it over or removed it (see the Locks tab).\n\n" + err.Error()}
 	}
 	return rev, a.wrap(err, host)
+}
+
+// partialMergeError is a "partialmerge" error when the commit (targets) takes
+// a merge record (svn:mergeinfo) along but leaves other local changes behind,
+// which is what a merge leaves: committing only part of it would record
+// revisions as merged that aren't. nil when that's not the case.
+func (a *App) partialMergeError(wc string, targets []string, changes []svn.Change) error {
+	c, _ := a.client()
+	o := a.opts(a.wcHost(wc))
+	merge := false
+	for _, t := range targets {
+		if ok, err := c.MergeRecordChanged(a.ctx, o, filepath.Join(wc, filepath.FromSlash(t))); err == nil && ok {
+			merge = true
+			break
+		}
+	}
+	if !merge {
+		return nil
+	}
+	var left []string
+	for _, ch := range changes {
+		if ch.Item != "unversioned" && ch.Item != "external" && !slices.Contains(targets, ch.Path) &&
+			(ch.Item != "normal" || ch.Props == "modified" || ch.TreeConflict) {
+			left = append(left, ch.Path)
+		}
+	}
+	if len(left) == 0 {
+		return nil
+	}
+	shown := left[:min(len(left), 8)]
+	more := ""
+	if len(left) > len(shown) {
+		more = fmt.Sprintf("\n  … and %d more", len(left)-len(shown))
+	}
+	return &appError{Kind: "partialmerge", Message: "This commit includes a merge record (which revisions were merged), " +
+		"but leaves these changes out:\n\n  " + strings.Join(shown, "\n  ") + more + "\n\n" +
+		"A merge should be committed whole: committing the record without them tells svn those revisions are " +
+		"merged when they aren't, and a later merge would skip them. Tick everything and commit again."}
 }
 
 // markersError is a "markers" error listing the files under wc that still
@@ -1397,4 +1447,93 @@ func (a *App) Incoming(wc string) (int, error) {
 		}
 	}
 	return n, nil
+}
+
+// --- Merging ------------------------------------------------------------------------
+
+// MaxMergeList caps how many not-yet-merged revisions the merge dialog lists.
+const MaxMergeList = 300
+
+// MergePlan is what merging src into the working copy would bring.
+type MergePlan struct {
+	Source    string         `json:"source"`
+	Target    string         `json:"target"`    // the working copy's URL
+	Revisions []svn.LogEntry `json:"revisions"` // not merged yet, newest first (up to MaxMergeList)
+	Total     int            `json:"total"`     // how many there are in all
+}
+
+// MergePlan lists the revisions of src (a trunk, branch or tag URL, at the
+// same subfolder as the working copy) that the working copy doesn't have yet.
+func (a *App) MergePlan(wc, src string) (*MergePlan, error) {
+	c, err := a.client()
+	if err != nil {
+		return nil, err
+	}
+	host := a.wcHost(wc)
+	o := a.opts(host)
+	info, err := c.Info(a.ctx, o, wc)
+	if err != nil {
+		return nil, a.wrap(err, host)
+	}
+	if strings.TrimRight(src, "/") == info.URL {
+		return nil, &appError{Kind: "other", Message: "That's the branch this working copy is on."}
+	}
+	revs, err := c.Eligible(a.ctx, o, src, wc)
+	if err != nil {
+		return nil, a.wrap(err, host)
+	}
+	p := &MergePlan{Source: src, Target: info.URL, Total: len(revs), Revisions: []svn.LogEntry{}}
+	if len(revs) > MaxMergeList {
+		revs = revs[len(revs)-MaxMergeList:] // the newest
+	}
+	if len(revs) > 0 {
+		p.Revisions, err = c.LogRevisions(a.ctx, o, src, revs)
+		if err != nil {
+			return nil, a.wrap(err, host)
+		}
+	}
+	return p, nil
+}
+
+// MergeInto merges src into the working copy, as local changes to check and
+// commit: everything not merged yet (revs empty), or just revs
+// (cherry-picking). The working copy must have no local changes, so the merge
+// can be reviewed, and undone with Revert, on its own ("needclean"), and be
+// at a single revision ("needupdate").
+func (a *App) MergeInto(wc, src string, revs []int) error {
+	c, err := a.client()
+	if err != nil {
+		return err
+	}
+	host := a.wcHost(wc)
+	o := a.opts(host)
+	changes, _, err := c.Status(a.ctx, o, wc, false)
+	if err != nil {
+		return a.wrap(err, host)
+	}
+	n := 0
+	for _, ch := range changes {
+		if ch.Item != "unversioned" && ch.Item != "external" && (ch.Item != "normal" || ch.Props == "modified" || ch.TreeConflict) {
+			n++
+		}
+	}
+	if n > 0 {
+		what, them := fmt.Sprintf("%d uncommitted changes", n), "them"
+		if n == 1 {
+			what, them = "an uncommitted change", "it"
+		}
+		return &appError{Kind: "needclean", Message: "You have " + what + ". Commit or revert " + them + " first, " +
+			"so the merge is the only change in your working copy: easy to check, and Revert undoes it cleanly."}
+	}
+	err = a.longOp(func(ctx context.Context, line func(string)) error {
+		return c.MergeFrom(ctx, o, src, wc, revs, line)
+	})
+	switch svn.KindOf(err) {
+	case svn.KindNeedUpdate:
+		return &appError{Kind: "needupdate", Message: "Your working copy has files at different revisions " +
+			"(normal after a commit): svn needs it updated before it can merge."}
+	case svn.KindNeedClean:
+		return &appError{Kind: "needclean", Message: "svn needs a working copy without local changes for this merge: commit or revert them first."}
+	}
+	return a.wrap(err, host)
 }

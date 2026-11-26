@@ -76,6 +76,7 @@ const (
 	KindCanceled          // the user canceled
 	KindLockConflict      // a file is locked by someone else, or this working copy's lock was taken
 	KindNeedUpdate        // the working copy must be updated first (mixed revisions, for a merge)
+	KindNeedClean         // the working copy must have no local changes (for some merges)
 )
 
 // Error is a failed svn run.
@@ -119,6 +120,8 @@ func newError(stderr string, err error) *Error {
 		e.Kind = KindCert
 	case e.has(authCodes):
 		e.Kind = KindAuth
+	case e.has([]string{"E195016"}): // can't merge into a working copy with local changes
+		e.Kind = KindNeedClean
 	case e.has(needUpdateCodes):
 		e.Kind = KindNeedUpdate
 	case e.has(lockConflictCodes):

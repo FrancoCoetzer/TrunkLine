@@ -514,8 +514,25 @@ async function commit() {
   if (!sel.length) return toast("Tick the changes to commit.");
   if (!msg.trim()) { $("commitMsg").focus(); return toast("Write a commit message first."); }
   await busy($("commitBtn"), async () => {
-    const keep = !$("keepLocksBox").hidden && $("keepLocks").checked;
-    const rev = await withMarkersCheck(allow => call("Commit", state.view.path, msg, sel.map(c => c.path), allow, keep), "Commit anyway");
+    const opts = { allowMarkers: false, keepLocks: !$("keepLocksBox").hidden && $("keepLocks").checked, allowPartialMerge: false };
+    let rev;
+    for (;;) {
+      try {
+        rev = await call("Commit", state.view.path, msg, sel.map(c => c.path), opts);
+        break;
+      } catch (e) {
+        const err = parseErr(e);
+        if (err.kind === "markers" && !opts.allowMarkers) {
+          if (!await confirmDanger("Conflict markers left in the file", err.message + "\n\nOnly continue if those lines are meant to be in the file.", "Commit anyway")) throw { kind: "canceled", message: "Canceled" };
+          opts.allowMarkers = true;
+        } else if (err.kind === "partialmerge" && !opts.allowPartialMerge) {
+          if (!await confirmDanger("Commit only part of a merge?", err.message, "Commit only these")) throw { kind: "canceled", message: "Canceled" };
+          opts.allowPartialMerge = true;
+        } else {
+          throw err;
+        }
+      }
+    }
     $("keepLocks").checked = false;
     $("commitMsg").value = "";
     state.log = [];
@@ -1007,6 +1024,92 @@ $("importHereBtn").onclick = async () => {
   }
 };
 
+// ---- Merging -------------------------------------------------------------------------------------
+
+async function openMerge(br) {
+  const wc = state.view.path;
+  const here = state.branches.branches.find(x => x.current);
+  const hereName = here ? here.name : "your working copy";
+  let plan;
+  try { plan = await call("MergePlan", wc, br.url); } catch (e) { return report(e); }
+  if (!plan.total) return toast(`Nothing to merge: you already have everything from ${br.name}.`, "ok");
+
+  $("mergeTitle").textContent = `Merge ${br.name} into ${hereName}`;
+  $("mergeWhat").textContent = br.kind === "trunk"
+    ? `Bring trunk's newer changes into ${hereName}, to keep it up to date.`
+    : here && here.kind === "trunk"
+      ? `Bring the work done on ${br.name} into trunk.`
+      : `Bring changes from ${br.name} into ${hereName}.`;
+  const tb = $("mergeRevs");
+  tb.replaceChildren();
+  for (const e of plan.revisions) {
+    const box = el("input", { type: "checkbox", "data-rev": e.revision });
+    box.checked = true;
+    box.onchange = updateMergeHow;
+    tb.append(el("tr", {},
+      el("td", {}, box),
+      el("td", { class: "muted" }, "r" + e.revision),
+      el("td", {}, e.author || ""),
+      el("td", { class: "muted" }, fmtDate(e.date)),
+      el("td", { class: "msg", title: e.message }, (e.message || "").split("\n")[0])));
+  }
+  $("mergeCount").textContent = `${plan.total} commit${plan.total === 1 ? "" : "s"} you don't have yet` +
+    (plan.total > plan.revisions.length ? ` (the newest ${plan.revisions.length} are listed)` : "");
+  $("mergeAll").checked = true;
+  $("mergeAll").onchange = () => { for (const b of tb.querySelectorAll("input")) b.checked = $("mergeAll").checked; updateMergeHow(); };
+  function updateMergeHow() {
+    const boxes = [...tb.querySelectorAll("input")];
+    const picked = boxes.filter(b => b.checked).length;
+    $("mergeAll").checked = picked === boxes.length;
+    $("mergeOk").disabled = picked === 0;
+    $("mergeHow").textContent = picked === boxes.length
+      ? "Merges everything not merged yet. svn keeps track, so merging again later only brings what's new."
+      : `Merges only the ${picked} ticked commit${picked === 1 ? "" : "s"} (a cherry-pick). The others can still be merged later.`;
+  }
+  updateMergeHow();
+  if (await ask($("mergeDlg")) !== "ok") return;
+
+  const boxes = [...tb.querySelectorAll("input")];
+  const picked = boxes.filter(b => b.checked).map(b => Number(b.dataset.rev)).sort((a, b) => a - b);
+  // All ticked: svn's automatic merge (it knows what to skip when bringing a
+  // branch back); some: just those revisions.
+  const revs = picked.length === boxes.length && plan.total === boxes.length ? [] : picked;
+  const run = () => withProgress(`Merging ${br.name}`, () => call("MergeInto", wc, br.url, revs));
+  try {
+    await run();
+  } catch (err) {
+    const er = parseErr(err);
+    if (er.kind === "canceled") return;
+    if (er.kind === "needclean") { $("progDlg").close(); return toast(er.message, "err"); }
+    if (er.kind !== "needupdate") return report(er);
+    $("progDlg").close();
+    if (!await confirmDanger("Update first?", er.message, "Update and merge")) return;
+    try {
+      await withProgress("Updating " + $("wcName").textContent, () => call("Update", wc));
+      await refreshWc(false);
+      if (conflictsAfter("Updated")) return;
+      await run();
+    } catch (err2) {
+      if (parseErr(err2).kind !== "canceled") report(err2);
+      return;
+    }
+  }
+  state.log = [];
+  await refreshWc(false);
+  // A merge is committed whole: tick all of it.
+  for (const c of state.changes) if (localChange(c) && c.item !== "unversioned") state.checked.add(c.path);
+  renderChanges();
+  $("commitMsg").value = revs.length
+    ? `Merge ${revs.map(r => "r" + r).join(", ")} from ${br.name}`
+    : `Merge ${br.name} into ${hereName}`;
+  if (!conflictsAfter(`Merged ${br.name}`)) {
+    $("progDlg").close();
+    setTab("changes");
+    toast(`Merged ${br.name}. Check the changes, then commit them together: they're all ticked and the message is filled in. ` +
+      "Changed your mind? Tick all and Revert.", "ok");
+  }
+}
+
 // ---- Undo a commit -------------------------------------------------------------------------------
 
 async function undoRevision(e) {
@@ -1107,6 +1210,7 @@ function renderBranches() {
       actions.append(el("span", { class: "chip info" }, "you are here"));
     } else {
       actions.append(el("button", { onclick: () => switchTo(br) }, "Switch"));
+      actions.append(el("button", { onclick: () => openMerge(br), title: `Bring ${br.name}'s changes into your working copy` }, "Merge into mine…"));
       if (br.kind !== "trunk") actions.append(el("button", { class: "ghost danger", onclick: () => deleteBranch(br) }, "Delete"));
     }
     const c = br.commit;

@@ -68,7 +68,7 @@ func TestCommitNewFolder(t *testing.T) {
 	// Picking an unversioned folder commits it with everything inside.
 	put(t, filepath.Join(wc, "lib", "deep", "a.c"))
 	put(t, filepath.Join(wc, "other.c"))
-	rev, err := a.Commit(wc, "lib", []string{"lib"}, false, false)
+	rev, err := a.Commit(wc, "lib", []string{"lib"}, CommitOptions{AllowMarkers: false, KeepLocks: false})
 	if err != nil || rev != 1 {
 		t.Fatalf("commit: r%d, %v", rev, err)
 	}
@@ -86,7 +86,7 @@ func TestCommitTakesAddedParent(t *testing.T) {
 	if err := a.Add(wc, []string{"dir"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := a.Commit(wc, "a only", []string{"dir/a.c"}, false, false); err != nil {
+	if _, err := a.Commit(wc, "a only", []string{"dir/a.c"}, CommitOptions{AllowMarkers: false, KeepLocks: false}); err != nil {
 		t.Fatal(err)
 	}
 	if st := status(t, a, wc); len(st) != 1 || st["dir/b.c"] != "added" {
@@ -100,7 +100,7 @@ func TestCommitTakesAddedParent(t *testing.T) {
 	if st := status(t, a, wc); st["dir/a.c"] != "missing" {
 		t.Fatalf("status = %v", st)
 	}
-	if _, err := a.Commit(wc, "rm a", []string{"dir/a.c"}, false, false); err != nil {
+	if _, err := a.Commit(wc, "rm a", []string{"dir/a.c"}, CommitOptions{AllowMarkers: false, KeepLocks: false}); err != nil {
 		t.Fatal(err)
 	}
 	if st := status(t, a, wc); len(st) != 1 {
@@ -110,10 +110,10 @@ func TestCommitTakesAddedParent(t *testing.T) {
 
 func TestCommitRefuses(t *testing.T) {
 	a, wc := testApp(t)
-	if _, err := a.Commit(wc, "  ", []string{"x"}, false, false); err == nil {
+	if _, err := a.Commit(wc, "  ", []string{"x"}, CommitOptions{AllowMarkers: false, KeepLocks: false}); err == nil {
 		t.Error("empty message accepted")
 	}
-	if _, err := a.Commit(wc, "m", nil, false, false); err == nil {
+	if _, err := a.Commit(wc, "m", nil, CommitOptions{AllowMarkers: false, KeepLocks: false}); err == nil {
 		t.Error("nothing to commit accepted")
 	}
 }
@@ -134,7 +134,7 @@ func TestExportImportRefuse(t *testing.T) {
 		t.Fatal(err)
 	}
 	put(t, filepath.Join(wc, "f.c"))
-	if _, err := a.Commit(wc, "f", []string{"f.c"}, false, false); err != nil {
+	if _, err := a.Commit(wc, "f", []string{"f.c"}, CommitOptions{AllowMarkers: false, KeepLocks: false}); err != nil {
 		t.Fatal(err)
 	}
 	src := t.TempDir()
@@ -157,7 +157,7 @@ func TestExportImportRefuse(t *testing.T) {
 func TestBlameFile(t *testing.T) {
 	a, wc := testApp(t)
 	put(t, filepath.Join(wc, "src", "a.c"))
-	if _, err := a.Commit(wc, "a", []string{"src"}, false, false); err != nil {
+	if _, err := a.Commit(wc, "a", []string{"src"}, CommitOptions{AllowMarkers: false, KeepLocks: false}); err != nil {
 		t.Fatal(err)
 	}
 	b, err := a.BlameFile(wc, "src/a.c")
@@ -187,7 +187,7 @@ func TestConflictMarkersGuard(t *testing.T) {
 	if err := os.WriteFile(f, []byte("init();\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := a.Commit(wc, "add", []string{"main.c"}, false, false); err != nil {
+	if _, err := a.Commit(wc, "add", []string{"main.c"}, CommitOptions{AllowMarkers: false, KeepLocks: false}); err != nil {
 		t.Fatal(err)
 	}
 	// Someone else changes the line.
@@ -225,7 +225,7 @@ func TestConflictMarkersGuard(t *testing.T) {
 	if err := a.Resolve(wc, "working", []string{"main.c"}, true); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := a.Commit(wc, "oops", []string{"main.c"}, false, false); err == nil || !strings.Contains(err.Error(), `"kind":"markers"`) {
+	if _, err := a.Commit(wc, "oops", []string{"main.c"}, CommitOptions{AllowMarkers: false, KeepLocks: false}); err == nil || !strings.Contains(err.Error(), `"kind":"markers"`) {
 		t.Fatalf("commit with markers: %v", err)
 	}
 
@@ -233,7 +233,7 @@ func TestConflictMarkersGuard(t *testing.T) {
 	if err := os.WriteFile(f, []byte("init(); // mine\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := a.Commit(wc, "fixed", []string{"main.c"}, false, false); err != nil {
+	if _, err := a.Commit(wc, "fixed", []string{"main.c"}, CommitOptions{AllowMarkers: false, KeepLocks: false}); err != nil {
 		t.Fatalf("commit after fixing: %v", err)
 	}
 }
@@ -253,7 +253,7 @@ func TestLockFiles(t *testing.T) {
 	if out, err := exec.Command("svn", "propset", "svn:needs-lock", "*", filepath.Join(wc, "cad.step")).CombinedOutput(); err != nil {
 		t.Fatalf("%v %s", err, out)
 	}
-	if _, err := a.Commit(wc, "add", []string{"cad.step", "code.c"}, false, false); err != nil {
+	if _, err := a.Commit(wc, "add", []string{"cad.step", "code.c"}, CommitOptions{AllowMarkers: false, KeepLocks: false}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -309,7 +309,7 @@ func TestLockFiles(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(wc, "cad.step"), []byte("v2\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := a.Commit(wc, "v2", []string{"cad.step"}, false, true); err != nil {
+	if _, err := a.Commit(wc, "v2", []string{"cad.step"}, CommitOptions{AllowMarkers: false, KeepLocks: true}); err != nil {
 		t.Fatal(err)
 	}
 	if l := locks(wc); l["cad.step"].State != "mine" {
@@ -318,7 +318,7 @@ func TestLockFiles(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(wc, "cad.step"), []byte("v3\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := a.Commit(wc, "v3", []string{"cad.step"}, false, false); err != nil {
+	if _, err := a.Commit(wc, "v3", []string{"cad.step"}, CommitOptions{AllowMarkers: false, KeepLocks: false}); err != nil {
 		t.Fatal(err)
 	}
 	if l := locks(wc); l["cad.step"].State != "" {
@@ -353,7 +353,7 @@ func layoutApp(t *testing.T) (*App, string, string) {
 		}
 	}
 	put(t, filepath.Join(root, "trunk", "src", "main.c"))
-	if _, err := a.Commit(root, "layout", []string{"trunk", "branches", "tags"}, false, false); err != nil {
+	if _, err := a.Commit(root, "layout", []string{"trunk", "branches", "tags"}, CommitOptions{AllowMarkers: false, KeepLocks: false}); err != nil {
 		t.Fatal(err)
 	}
 	wc := filepath.Join(t.TempDir(), "trunk-wc")
@@ -384,7 +384,7 @@ func TestBranches(t *testing.T) {
 
 	// From head and from the working copy's revision.
 	put(t, filepath.Join(wc, "src", "new.c"))
-	if _, err := a.Commit(wc, "new.c", []string{"src/new.c"}, false, false); err != nil {
+	if _, err := a.Commit(wc, "new.c", []string{"src/new.c"}, CommitOptions{AllowMarkers: false, KeepLocks: false}); err != nil {
 		t.Fatal(err) // r2; the working copy root is still at r1
 	}
 	if rev, err := a.CreateBranch(wc, "branch", "from-head", "head", ""); err != nil || rev != 3 {
@@ -488,7 +488,7 @@ func TestBranchesNoLayout(t *testing.T) {
 func TestUndoRevisionNewer(t *testing.T) {
 	a, wc := testApp(t)
 	put(t, filepath.Join(wc, "f.c"))
-	if _, err := a.Commit(wc, "f", []string{"f.c"}, false, false); err != nil {
+	if _, err := a.Commit(wc, "f", []string{"f.c"}, CommitOptions{AllowMarkers: false, KeepLocks: false}); err != nil {
 		t.Fatal(err) // r1; the working copy root is still at r0
 	}
 	err := a.UndoRevision(wc, 1)
@@ -503,7 +503,7 @@ func TestUndoRevisionNewer(t *testing.T) {
 func TestIgnoreFromChanges(t *testing.T) {
 	a, wc := testApp(t)
 	put(t, filepath.Join(wc, "src", "main.c"))
-	if _, err := a.Commit(wc, "src", []string{"src"}, false, false); err != nil {
+	if _, err := a.Commit(wc, "src", []string{"src"}, CommitOptions{AllowMarkers: false, KeepLocks: false}); err != nil {
 		t.Fatal(err)
 	}
 	put(t, filepath.Join(wc, "src", "main.tmp"))
@@ -533,7 +533,7 @@ func TestIgnoreFromChanges(t *testing.T) {
 		t.Errorf("status after ignoring = %v", st)
 	}
 	// The property changes commit like anything else.
-	if _, err := a.Commit(wc, "ignore build output", []string{".", "src"}, false, false); err != nil {
+	if _, err := a.Commit(wc, "ignore build output", []string{".", "src"}, CommitOptions{AllowMarkers: false, KeepLocks: false}); err != nil {
 		t.Fatal(err)
 	}
 	if st := status(t, a, wc); len(st) != 1 || st["notes"] != "unversioned" {
@@ -584,7 +584,7 @@ func TestRelocateApp(t *testing.T) {
 	})
 	// Still works against the new address.
 	put(t, filepath.Join(wc, "after-move.txt"))
-	if _, err := a.Commit(wc, "after the move", []string{"after-move.txt"}, false, false); err != nil {
+	if _, err := a.Commit(wc, "after the move", []string{"after-move.txt"}, CommitOptions{AllowMarkers: false, KeepLocks: false}); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -594,7 +594,7 @@ func TestIncoming(t *testing.T) {
 	info, _ := a.Info(wc)
 	put(t, filepath.Join(wc, "a.c"))
 	put(t, filepath.Join(wc, "b.c"))
-	if _, err := a.Commit(wc, "two files", []string{"a.c", "b.c"}, false, false); err != nil {
+	if _, err := a.Commit(wc, "two files", []string{"a.c", "b.c"}, CommitOptions{AllowMarkers: false, KeepLocks: false}); err != nil {
 		t.Fatal(err)
 	}
 	// Our own commit isn't "incoming", even before updating.
@@ -628,7 +628,7 @@ func TestIncoming(t *testing.T) {
 func TestIgnoreRecursiveOnce(t *testing.T) {
 	a, wc := testApp(t)
 	put(t, filepath.Join(wc, "src", "deep", "keep.c"))
-	if _, err := a.Commit(wc, "src", []string{"src"}, false, false); err != nil {
+	if _, err := a.Commit(wc, "src", []string{"src"}, CommitOptions{AllowMarkers: false, KeepLocks: false}); err != nil {
 		t.Fatal(err)
 	}
 	put(t, filepath.Join(wc, "a.tmp"))
@@ -650,5 +650,73 @@ func TestIgnoreRecursiveOnce(t *testing.T) {
 	}
 	if commonDir("src/a", "src/b") != "src" || commonDir("a", "b") != "." || commonDir(".", "src") != "." || commonDir("src/x", "src/x") != "src/x" {
 		t.Error("commonDir")
+	}
+}
+
+func TestMergePlanAndGuards(t *testing.T) {
+	a, tw, root := layoutApp(t)
+	ctx := context.Background()
+	if _, err := a.CreateBranch(tw, "branch", "b", "head", ""); err != nil {
+		t.Fatal(err) // r2
+	}
+	bw := filepath.Join(t.TempDir(), "bw")
+	if err := a.svn.Checkout(ctx, svn.Opts{}, root+"/branches/b", bw, nil); err != nil {
+		t.Fatal(err)
+	}
+	// Two trunk commits.
+	for i, name := range []string{"one.c", "two.c"} {
+		put(t, filepath.Join(tw, "src", name))
+		if _, err := a.Commit(tw, fmt.Sprintf("trunk %d", i+1), []string{"src/" + name}, CommitOptions{}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	plan, err := a.MergePlan(bw, root+"/trunk")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.Total != 2 || len(plan.Revisions) != 2 || plan.Revisions[0].Message != "trunk 2" || plan.Target != root+"/branches/b" {
+		t.Fatalf("plan = %+v", plan)
+	}
+	if _, err := a.MergePlan(bw, root+"/branches/b"); err == nil {
+		t.Error("merging a branch into itself was offered")
+	}
+
+	// A local change blocks the merge.
+	if err := os.WriteFile(filepath.Join(bw, "src", "main.c"), []byte("edit\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.MergeInto(bw, root+"/trunk", nil); err == nil || !strings.Contains(err.Error(), `"kind":"needclean"`) {
+		t.Errorf("merge with a local change: %v", err)
+	}
+	if err := a.Revert(bw, []string{"src/main.c"}); err != nil {
+		t.Fatal(err)
+	}
+
+	// After a merge (done here through svn), committing only the folder's
+	// merge record is refused; the whole merge goes through.
+	if err := a.svn.MergeFrom(ctx, svn.Opts{}, root+"/trunk", bw, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	_, err = a.Commit(bw, "merge record only", []string{"."}, CommitOptions{})
+	if err == nil || !strings.Contains(err.Error(), `"kind":"partialmerge"`) || !strings.Contains(err.Error(), "src/one.c") {
+		t.Fatalf("partial merge commit: %v", err)
+	}
+	var all []string
+	for p, item := range status(t, a, bw) {
+		if item != "unversioned" {
+			all = append(all, p)
+		}
+	}
+	if _, err := a.Commit(bw, "Merge trunk", all, CommitOptions{}); err != nil {
+		t.Fatalf("whole merge commit: %v", err)
+	}
+	if plan, _ := a.MergePlan(bw, root+"/trunk"); plan.Total != 0 {
+		t.Errorf("after merging, still eligible: %+v", plan)
+	}
+	// A plain commit without any merge record isn't affected by the guard.
+	put(t, filepath.Join(bw, "x.c"))
+	put(t, filepath.Join(bw, "y.c"))
+	if _, err := a.Commit(bw, "just x", []string{"x.c"}, CommitOptions{}); err != nil {
+		t.Errorf("ordinary partial commit: %v", err)
 	}
 }

@@ -245,6 +245,12 @@ func (c *Client) LogSearch(ctx context.Context, o Opts, target string, from, lim
 	} else {
 		args = append(args, "-r", "HEAD:1")
 	}
+	return c.log(ctx, o, args, target, limit)
+}
+
+// log runs svn log with args (which must include --xml -v) on target and
+// parses up to limit entries (0: all).
+func (c *Client) log(ctx context.Context, o Opts, args []string, target string, limit int) ([]LogEntry, error) {
 	out, err := c.run(ctx, o, nil, append(args, "--", target)...)
 	if err != nil {
 		return nil, err

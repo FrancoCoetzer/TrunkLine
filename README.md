@@ -37,6 +37,14 @@ that works the same on both, built with Go and [Wails](https://wails.io/).
   repositories without the trunk/branches/tags layout. If the server's address
   changes (http to https, a new name), **Server moved…** points the working
   copy at it.
+- **Merging**: "Merge into mine…" on the Branches tab lists the commits of
+  another branch (or trunk) that you don't have yet. Merge all of them (keep a
+  branch up to date with trunk, or bring a finished branch back) or tick just
+  some (cherry-pick); svn remembers what was merged, so nothing is merged
+  twice. The merge lands as local changes, all ticked, with the commit message
+  filled in; Revert undoes it. A merge needs a working copy without other
+  changes, and TrunkLine stops a commit that would take the merge record
+  without the merged changes.
 - **Locks**: lock a file you can't merge (CAD models, Office documents,
   images) before editing it, so nobody else changes it at the same time. The
   Locks tab lists the files that need a lock (svn:needs-lock, read-only until
@@ -134,7 +142,7 @@ banner. `make dist TAG=v9.9.9` builds the same files locally for testing.
 
 Early days: the everyday workflow (checkout, update, commit, history, browse,
 export, import) works and is tested against real repositories. Not yet there:
-merging, side-by-side diffs. Bug reports and pull
+side-by-side diffs. Bug reports and pull
 requests are welcome.
 
 ## License
