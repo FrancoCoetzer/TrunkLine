@@ -427,6 +427,7 @@ function updateChangeButtons() {
   $("commitBtn").disabled = !sel.length;
   $("revertBtn").disabled = !sel.some(c => c.item !== "unversioned");
   $("addBtn").disabled = !sel.some(c => c.item === "unversioned");
+  $("ignoreBtn").disabled = !sel.some(c => c.item === "unversioned");
   $("resolveBox").hidden = !state.changes.some(c => c.item === "conflicted" || c.props === "conflicted" || c.treeConflict);
   $("keepLocksBox").hidden = !sel.some(c => c.lockState === "mine");
 }
@@ -542,6 +543,29 @@ $("addBtn").onclick = () => busy($("addBtn"), async () => {
   await call("Add", state.view.path, sel.map(c => c.path));
   await refreshWc(false);
 });
+
+$("ignoreBtn").onclick = async () => {
+  const sel = checkedChanges().filter(c => c.item === "unversioned");
+  if (!sel.length) return;
+  const names = sel.map(c => c.path.split("/").pop());
+  const exts = [...new Set(names.map(n => (n.lastIndexOf(".") > 0 ? n.slice(n.lastIndexOf(".")) : "")))];
+  const oneExt = exts.length === 1 && exts[0] && !sel.some(c => c.isDir) ? exts[0] : "";
+  $("ignoreWhat").textContent = sel.slice(0, 10).map(c => "  " + c.path + (c.isDir ? "/" : "")).join("\n") +
+    (sel.length > 10 ? `\n  … and ${sel.length - 10} more` : "");
+  $("ignoreByName").textContent = sel.length === 1 ? `Just ${names[0]}` : "Just these names";
+  $("ignoreByExtRow").hidden = !oneExt;
+  $("ignoreByExt").textContent = `Every ${oneExt} file`;
+  document.querySelector('input[name="ignoreBy"][value="' + (oneExt ? "ext" : "name") + '"]').checked = true;
+  $("ignoreRecursive").checked = false;
+  if (await ask($("ignoreDlg")) !== "ok") return;
+  const byExt = document.querySelector('input[name="ignoreBy"]:checked').value === "ext";
+  await busy($("ignoreBtn"), async () => {
+    await call("Ignore", state.view.path, sel.map(c => c.path), byExt, $("ignoreRecursive").checked);
+    for (const c of sel) state.checked.delete(c.path);
+    await refreshWc(false);
+    toast("Ignored. The folder's ignore list changed: commit it (it's ticked) so everyone gets it.", "ok");
+  });
+};
 
 $("resolveBtn").onclick = () => busy($("resolveBtn"), async () => {
   const sel = checkedChanges().filter(c => c.item === "conflicted" || c.props === "conflicted" || c.treeConflict);

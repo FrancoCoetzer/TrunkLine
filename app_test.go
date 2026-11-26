@@ -498,3 +498,44 @@ func TestUndoRevisionNewer(t *testing.T) {
 		t.Error("undoing r0 accepted")
 	}
 }
+
+func TestIgnoreFromChanges(t *testing.T) {
+	a, wc := testApp(t)
+	put(t, filepath.Join(wc, "src", "main.c"))
+	if _, err := a.Commit(wc, "src", []string{"src"}, false, false); err != nil {
+		t.Fatal(err)
+	}
+	put(t, filepath.Join(wc, "src", "main.tmp"))
+	put(t, filepath.Join(wc, "src", "util.tmp"))
+	put(t, filepath.Join(wc, "src", "old.o")) // svn ignores *.o by default
+	put(t, filepath.Join(wc, "build", "app"))
+	put(t, filepath.Join(wc, "notes"))
+
+	if _, err := a.Ignore(wc, []string{"src/main.c"}, false, false); err == nil {
+		t.Error("ignoring a versioned file was allowed")
+	}
+	if _, err := a.Ignore(wc, []string{"notes"}, true, false); err == nil {
+		t.Error("ignoring by extension a name without one was allowed")
+	}
+	if _, err := a.Ignore(wc, []string{"src/old.o"}, false, false); err == nil || !strings.Contains(err.Error(), "ignored already") {
+		t.Errorf("ignoring an already-ignored file: %v", err)
+	}
+	// *.tmp in src (both files: one pattern), and build by name.
+	if n, err := a.Ignore(wc, []string{"src/main.tmp", "src/util.tmp"}, true, false); n != 1 || err != nil {
+		t.Fatalf("ignore *.tmp: %d %v", n, err)
+	}
+	if n, err := a.Ignore(wc, []string{"build"}, false, false); n != 1 || err != nil {
+		t.Fatalf("ignore build: %d %v", n, err)
+	}
+	st := status(t, a, wc)
+	if len(st) != 3 || st["notes"] != "unversioned" || st["src"] != "normal" || st["."] != "normal" {
+		t.Errorf("status after ignoring = %v", st)
+	}
+	// The property changes commit like anything else.
+	if _, err := a.Commit(wc, "ignore build output", []string{".", "src"}, false, false); err != nil {
+		t.Fatal(err)
+	}
+	if st := status(t, a, wc); len(st) != 1 || st["notes"] != "unversioned" {
+		t.Errorf("status after committing the ignores = %v", st)
+	}
+}

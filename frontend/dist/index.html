@@ -227,6 +227,7 @@
                 <input type="checkbox" id="keepLocks"> Keep my locks</label>
               <button class="danger" id="revertBtn" title="Throw away local changes to the ticked files">Revert</button>
               <button id="addBtn" title="svn add the ticked unversioned files">Add</button>
+              <button id="ignoreBtn" title="Stop the ticked new files (build output, logs…) showing up here">Ignore…</button>
               <span id="resolveBox" hidden>
                 <select id="resolveHow" aria-label="How to resolve the ticked conflicts">
                   <option value="" selected disabled>Choose how to resolve…</option>
@@ -419,6 +420,16 @@
   <p>Any folder of the same repository: a branch, a tag, or an older layout. Your local changes come along.</p>
   <div class="field"><label for="switchUrl">URL</label><input id="switchUrl"></div>
   <div class="actions"><button value="cancel" formnovalidate>Cancel</button><button class="primary" value="ok">Switch</button></div>
+</form></dialog>
+
+<dialog id="ignoreDlg"><form method="dialog">
+  <h3>Ignore</h3>
+  <p id="ignoreWhat" style="white-space:pre-wrap"></p>
+  <label style="display:flex;gap:6px;align-items:center"><input type="radio" name="ignoreBy" value="name" checked> <span id="ignoreByName"></span></label>
+  <label style="display:flex;gap:6px;align-items:center" id="ignoreByExtRow"><input type="radio" name="ignoreBy" value="ext"> <span id="ignoreByExt"></span></label>
+  <label style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="ignoreRecursive"> In subfolders too</label>
+  <p class="muted">This changes the folder's ignore list (a property). Commit that change so everyone ignores the same files.</p>
+  <div class="actions"><button value="cancel" formnovalidate>Cancel</button><button class="primary" value="ok">Ignore</button></div>
 </form></dialog>
 
 <dialog id="lockDlg"><form method="dialog">

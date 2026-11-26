@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	goruntime "runtime"
 	"slices"
@@ -1223,4 +1224,69 @@ func (a *App) UndoRevision(wc string, rev int) error {
 			"(normal after a commit): svn needs it updated before it can undo a commit."}
 	}
 	return a.wrap(err, host)
+}
+
+// --- Ignore ---------------------------------------------------------------------
+
+// Ignore stops unversioned paths (relative to wc) showing as changes, by
+// adding a pattern to their folder's svn:ignore (or svn:global-ignores with
+// recursive, which also covers the folders below). byExt ignores every file
+// with the same extension ("*.log") instead of the exact names. The folder's
+// property change is a local change, committed like any other so everyone
+// gets the same ignores. It returns the number of patterns added.
+func (a *App) Ignore(wc string, rel []string, byExt, recursive bool) (int, error) {
+	c, err := a.client()
+	if err != nil {
+		return 0, err
+	}
+	if len(rel) == 0 {
+		return 0, &appError{Kind: "other", Message: "Pick the files or folders to ignore."}
+	}
+	host := a.wcHost(wc)
+	o := a.opts(host)
+	changes, _, err := c.Status(a.ctx, o, wc, false)
+	if err != nil {
+		return 0, a.wrap(err, host)
+	}
+	item := map[string]string{}
+	for _, ch := range changes {
+		item[ch.Path] = ch.Item
+	}
+	type rule struct{ dir, pattern string }
+	var rules []rule
+	for _, r := range rel {
+		switch it, listed := item[r]; {
+		case !listed:
+			return 0, &appError{Kind: "other", Message: r + " isn't listed as a new file: it may be ignored already (svn ignores some, like *.o, by default)."}
+		case it != "unversioned":
+			return 0, &appError{Kind: "other", Message: r + " is already in the repository: ignoring only hides files that aren't. " +
+				"To stop tracking it, delete it from svn first."}
+		}
+		name := path.Base(r)
+		pattern := name
+		if byExt {
+			ext := path.Ext(name)
+			if ext == "" || ext == name {
+				return 0, &appError{Kind: "other", Message: name + " has no extension to ignore by."}
+			}
+			pattern = "*" + ext
+		} else if strings.ContainsAny(name, "*?[]") {
+			return 0, &appError{Kind: "other", Message: name + " has characters (* ? [ ]) that svn reads as a pattern: ignore by extension, or edit svn:ignore by hand."}
+		}
+		rule := rule{dir: filepath.Join(wc, filepath.FromSlash(path.Dir(r))), pattern: pattern}
+		if !slices.Contains(rules, rule) {
+			rules = append(rules, rule)
+		}
+	}
+	added := 0
+	for _, r := range rules {
+		ok, err := c.AddIgnore(a.ctx, o, r.dir, r.pattern, recursive)
+		if err != nil {
+			return added, a.wrap(err, host)
+		}
+		if ok {
+			added++
+		}
+	}
+	return added, nil
 }

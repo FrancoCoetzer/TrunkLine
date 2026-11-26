@@ -338,3 +338,55 @@ func TestLogSearch(t *testing.T) {
 		t.Errorf("search for old r2 = %s", got)
 	}
 }
+
+func TestIgnore(t *testing.T) {
+	c, _, wc := newRepo(t)
+	ctx := context.Background()
+	if v, err := c.GetProp(ctx, Opts{}, "svn:ignore", wc); err != nil || v != "" {
+		t.Fatalf("unset property = %q, %v", v, err)
+	}
+	write(t, filepath.Join(wc, "build", "out.bin"), "x")
+	write(t, filepath.Join(wc, "a.log"), "x")
+	write(t, filepath.Join(wc, "keep.txt"), "x")
+	write(t, filepath.Join(wc, "src", "b.log"), "x")
+	if err := c.Add(ctx, Opts{}, filepath.Join(wc, "src")); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Revert(ctx, Opts{}, filepath.Join(wc, "src", "b.log")); err != nil { // src added, b.log not
+		t.Fatal(err)
+	}
+
+	// The build folder, by name, in this folder only.
+	if added, err := c.AddIgnore(ctx, Opts{}, wc, "build", false); !added || err != nil {
+		t.Fatalf("ignore build: %v %v", added, err)
+	}
+	if added, _ := c.AddIgnore(ctx, Opts{}, wc, "build", false); added {
+		t.Error("the same pattern was added twice")
+	}
+	// *.log here and below.
+	if _, err := c.AddIgnore(ctx, Opts{}, wc, "*.log", true); err != nil {
+		t.Fatal(err)
+	}
+	st := statusMap(t, c, wc)
+	for _, gone := range []string{"build", "a.log", "src/b.log"} {
+		if _, ok := st[gone]; ok {
+			t.Errorf("%s still listed after ignoring: %+v", gone, st)
+		}
+	}
+	if st["keep.txt"].Item != "unversioned" || st["."].Props != "modified" {
+		t.Errorf("status = %+v", st)
+	}
+	if v, _ := c.GetProp(ctx, Opts{}, "svn:ignore", wc); v != "build\n" {
+		t.Errorf("svn:ignore = %q", v)
+	}
+	if v, _ := c.GetProp(ctx, Opts{}, "svn:global-ignores", wc); v != "*.log\n" {
+		t.Errorf("svn:global-ignores = %q", v)
+	}
+	// Removing the last pattern removes the property.
+	if err := c.SetProp(ctx, Opts{}, "svn:ignore", "", wc); err != nil {
+		t.Fatal(err)
+	}
+	if v, _ := c.GetProp(ctx, Opts{}, "svn:ignore", wc); v != "" {
+		t.Errorf("after delete: %q", v)
+	}
+}
