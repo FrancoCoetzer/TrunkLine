@@ -27,7 +27,7 @@
   aside section { display: flex; flex-direction: column; gap: 4px; }
   aside .head { display: flex; align-items: center; justify-content: space-between; padding: 0 4px 4px; }
   .navitem { display: block; width: 100%; text-align: left; background: transparent; border: 1px solid transparent; padding: 6px 8px; }
-  .navitem .sub { display: block; color: var(--ink-dim); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .navitem .sub { display: block; color: var(--ink-dim); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .navitem.active { background: var(--cyan-tint); border-color: var(--cyan); }
   .empty { color: var(--ink-dim); padding: 4px 8px; font-size: 12px; }
 
@@ -42,7 +42,10 @@
   .bar .url { color: var(--ink-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 50ch; }
   .bar .spacer { flex: 1; }
   .tabs { display: flex; gap: 4px; padding: 8px 14px 0; border-bottom: 1px solid var(--line); }
-  .tabs button { border-bottom-left-radius: 0; border-bottom-right-radius: 0; border-bottom: none; }
+  .tabs button { border-bottom-left-radius: 0; border-bottom-right-radius: 0; border-bottom: none; position: relative; }
+  /* The selected tab: colour and an underline (not colour alone), drawn as a border so forced-colours mode keeps it */
+  .tabs [role=tab][aria-selected="true"] { color: var(--cyan); border-color: var(--cyan); background: var(--cyan-tint); }
+  .tabs [role=tab][aria-selected="true"]::after { content: ""; position: absolute; left: 6px; right: 6px; bottom: 0; border-bottom: 2px solid var(--cyan); }
 
   .split { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(320px, 40%) 1fr; }
   .pane { min-height: 0; min-width: 0; display: flex; flex-direction: column; }
@@ -64,7 +67,7 @@
   .st-deleted, .st-missing, .st-conflicted, .st-obstructed { color: var(--red); }
   .st-unversioned, .st-external, .st-ignored { color: var(--ink-dim); }
   .incoming { color: var(--cyan); }
-  .lockmark { margin-left: 8px; font-size: 11px; }
+  .lockmark { margin-left: 8px; font-size: 12px; }
   #wcBranch { cursor: pointer; background: transparent; }
   #updateBtn.has-incoming { background: var(--accent-tint); box-shadow: var(--glow-accent); }
   #wcBranch.tag { color: var(--accent); border-color: var(--accent); }
@@ -215,14 +218,14 @@
         <button id="cleanupBtn" title="svn cleanup: release a working copy locked by an interrupted operation">Cleanup</button>
         <button class="ghost" id="removeWcBtn" title="Take this off the list (the files stay)">Remove</button>
       </div>
-      <div class="tabs">
-        <button data-tab="changes" class="active">Changes</button>
-        <button data-tab="history">History</button>
-        <button data-tab="branches" title="Trunk, branches and tags: switch, or make a new one">Branches</button>
-        <button data-tab="locks" title="Files that need a lock to edit, and who holds which lock">Locks</button>
+      <div class="tabs" role="tablist" aria-label="Working copy">
+        <button role="tab" id="tabbtn-changes" data-tab="changes" aria-selected="true" tabindex="0" title="Ctrl+1">Changes</button>
+        <button role="tab" id="tabbtn-history" data-tab="history" aria-selected="false" tabindex="-1" title="Ctrl+2">History</button>
+        <button role="tab" id="tabbtn-branches" data-tab="branches" aria-selected="false" tabindex="-1" title="Trunk, branches and tags: switch, or make a new one (Ctrl+3)">Branches</button>
+        <button role="tab" id="tabbtn-locks" data-tab="locks" aria-selected="false" tabindex="-1" title="Files that need a lock to edit, and who holds which lock (Ctrl+4)">Locks</button>
       </div>
 
-      <div id="tab-changes" class="split">
+      <div id="tab-changes" class="split" role="tabpanel" aria-labelledby="tabbtn-changes">
         <div class="pane">
           <div class="toolbar">
             <label><input type="checkbox" id="selAll"> All</label>
@@ -230,7 +233,7 @@
             <span class="spacer" style="flex:1"></span>
             <span class="muted" id="changeCount"></span>
           </div>
-          <div class="scroll"><table class="list"><tbody id="changes"></tbody></table></div>
+          <div class="scroll"><table class="list" aria-label="Changes"><tbody id="changes"></tbody></table></div>
           <div class="commit">
             <textarea id="commitMsg" placeholder="Commit message (Ctrl+Enter to commit)"></textarea>
             <div class="row">
@@ -259,7 +262,7 @@
         </div>
       </div>
 
-      <div id="tab-history" class="split" hidden>
+      <div id="tab-history" class="split" role="tabpanel" aria-labelledby="tabbtn-history" hidden>
         <div class="pane">
           <div class="toolbar">
             <input type="search" id="logSearch" placeholder="Search messages, authors, paths (Enter)" style="flex:1;min-width:12em">
@@ -267,7 +270,7 @@
           </div>
           <div class="toolbar" id="logStatus" hidden><span class="muted" id="logStatusText"></span>
             <span style="flex:1"></span><button class="ghost" id="logShowAll">Show all history</button></div>
-          <div class="scroll"><table class="list"><tbody id="log"></tbody></table>
+          <div class="scroll"><table class="list" aria-label="History"><tbody id="log"></tbody></table>
             <div style="padding:8px"><button id="moreLog" hidden>Load more</button></div></div>
         </div>
         <div class="pane">
@@ -276,7 +279,7 @@
         </div>
       </div>
 
-      <div id="tab-branches" class="pane" hidden>
+      <div id="tab-branches" class="pane" role="tabpanel" aria-labelledby="tabbtn-branches" hidden>
         <div class="toolbar">
           <button class="primary" id="newBranchBtn">New branch…</button>
           <button id="newTagBtn" title="A snapshot of the code, e.g. for a release">New tag…</button>
@@ -288,14 +291,14 @@
         </div>
         <div class="scroll">
           <table class="list">
-            <thead><tr><th></th><th>Name</th><th>Last change</th><th></th></tr></thead>
+            <thead><tr><th><span class="sr-only">Kind</span></th><th>Name</th><th>Last change</th><th><span class="sr-only">Actions</span></th></tr></thead>
             <tbody id="branches"></tbody>
           </table>
           <p class="placeholder" id="branchesHelp" hidden></p>
         </div>
       </div>
 
-      <div id="tab-locks" class="pane" hidden>
+      <div id="tab-locks" class="pane" role="tabpanel" aria-labelledby="tabbtn-locks" hidden>
         <div class="toolbar">
           <button class="primary" id="lockBtn" title="Lock the ticked files so only you can commit them">Lock</button>
           <button id="unlockBtn" title="Release the ticked locks">Unlock</button>
@@ -306,7 +309,7 @@
         </div>
         <div class="scroll">
           <table class="list">
-            <thead><tr><th></th><th>File</th><th>Lock</th><th>Note</th><th>Since</th></tr></thead>
+            <thead><tr><th><span class="sr-only">Select</span></th><th>File</th><th>Lock</th><th>Note</th><th>Since</th></tr></thead>
             <tbody id="locks"></tbody>
           </table>
           <p class="placeholder" id="locksHelp">

@@ -23,8 +23,9 @@
     --accent: #f59e0b;
     --cyan: #38bdf8;
     --green: #10b981;
-    --red: #f43f5e;
-    --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+    --red: #fb7185; /* readable as 12px text on the panels (4.5:1) */
+    /* Cascadia Mono comes with Windows 11, DejaVu Sans Mono with most Linux desktops */
+    --mono: ui-monospace, "SF Mono", "Cascadia Mono", "JetBrains Mono", "DejaVu Sans Mono", "Liberation Mono", Menlo, Consolas, monospace;
     --radius: 6px;
     --radius-lg: 8px;
     /* tints for banners, chips, toggled buttons */
@@ -57,7 +58,8 @@
     transition: border-color .12s, color .12s, background-color .12s, box-shadow .12s;
   }
   button:hover:not(:disabled) { border-color: var(--cyan); }
-  button:disabled { opacity: .45; cursor: not-allowed; }
+  /* disabled: faded and dashed, so it can't be mistaken for a quiet (ghost) button */
+  button:disabled { opacity: .4; cursor: not-allowed; border-style: dashed; }
   /* the group's main action: an amber outline that lights up */
   button.primary { color: var(--accent); border-color: var(--accent); font-weight: 600; }
   button.primary:hover:not(:disabled) { border-color: var(--accent); background: var(--accent-tint); box-shadow: var(--glow-accent); }
@@ -65,13 +67,13 @@
   button:is(.active, [aria-pressed="true"]) { color: var(--cyan); border-color: var(--cyan); background: var(--cyan-tint); }
   button.danger { color: var(--red); }
   button.danger:hover:not(:disabled) { border-color: var(--red); background: var(--red-tint); }
-  button.ghost { background: transparent; border-color: transparent; color: var(--ink-dim); padding: 4px 6px; }
-  button.ghost:hover:not(:disabled) { color: var(--ink); border-color: transparent; }
+  button.ghost { background: transparent; border-color: transparent; color: var(--ink); padding: 4px 6px; }
+  button.ghost:hover:not(:disabled) { color: var(--cyan); border-color: transparent; }
 
   /* Fields */
   :is(input[type=text], input[type=number], input[type=search], input:not([type]), select, textarea) {
     font-family: var(--mono); font-size: 12px; color: var(--ink); background: var(--bg);
-    border: 1px solid var(--line); border-radius: var(--radius); padding: 4px 8px;
+    border: 1px solid var(--line-strong); border-radius: var(--radius); padding: 4px 8px;
   }
   /* the open dropdown list is drawn by the system (WebKitGTK / WebView2): theme its options too */
   option, optgroup { background: var(--panel); color: var(--ink); }
@@ -83,7 +85,7 @@
   details > summary { cursor: pointer; color: var(--ink-dim); }
 
   /* Chips: a state in a pill */
-  .chip { font-size: 11px; padding: 1px 8px; border-radius: 10px; border: 1px solid var(--line); color: var(--ink-dim); }
+  .chip { font-size: 12px; padding: 1px 8px; border-radius: 10px; border: 1px solid var(--line); color: var(--ink-dim); }
   .chip:is(.ok, .pass) { color: var(--green); border-color: var(--green); }
   .chip:is(.err, .fail, .bad) { color: var(--red); border-color: var(--red); }
   .chip:is(.warn, .busy) { color: var(--accent); border-color: var(--accent); }
@@ -98,5 +100,21 @@
   /* Tables */
   table { border-collapse: collapse; }
   th, td { text-align: left; padding: 5px 8px; border-bottom: 1px solid var(--line); }
-  th { color: var(--ink-dim); font-weight: normal; font-size: 11px; }
+  th { color: var(--ink-dim); font-weight: normal; font-size: 12px; }
+
+  /* Checkboxes and radio buttons drawn the same in every webview, with an edge you can see (3:1) */
+  input:is([type=checkbox], [type=radio]) {
+    appearance: none; flex: none; width: 15px; height: 15px; margin: 0; display: inline-grid; place-content: center;
+    border: 1px solid var(--line-strong); background: var(--bg); border-radius: 3px; cursor: pointer; vertical-align: -3px;
+    transition: background-color .12s, border-color .12s;
+  }
+  input[type=radio] { border-radius: 50%; }
+  input:is([type=checkbox], [type=radio]):hover:not(:disabled) { border-color: var(--cyan); }
+  input:is([type=checkbox], [type=radio]):checked { background: var(--cyan); border-color: var(--cyan); }
+  input[type=checkbox]:checked::before {
+    content: ""; width: 9px; height: 9px; background: var(--bg);
+    clip-path: polygon(14% 44%, 0 59%, 39% 98%, 100% 18%, 85% 4%, 38% 66%);
+  }
+  input[type=radio]:checked::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--bg); }
+  input:is([type=checkbox], [type=radio]):disabled { opacity: .35; cursor: not-allowed; }
 }

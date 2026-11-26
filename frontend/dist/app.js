@@ -341,21 +341,32 @@ $("progDlg").addEventListener("cancel", e => { if ($("progClose").disabled) e.pr
 
 // ---- Sidebar -------------------------------------------------------------------------
 
+// shortPath shows a folder for the sidebar: the home folder as ~, and a long
+// path shortened in the middle so its last folders (the name) stay visible.
+function shortPath(p) {
+  const home = state.startup && state.startup.home;
+  if (home && (p === home || p.startsWith(home + sep()))) p = "~" + p.slice(home.length);
+  const parts = p.split(/[\\/]/);
+  if (p.length <= 34 || parts.length <= 3) return p;
+  return parts[0] + sep() + "…" + sep() + parts.slice(-2).join(sep());
+}
+
 function renderSidebar() {
   const wcList = $("wcList");
   wcList.replaceChildren();
   if (!state.wcs.length) wcList.append(el("div", { class: "empty" }, "None yet"));
   for (const wc of state.wcs) {
     const active = state.view && state.view.type === "wc" && state.view.path === wc.path;
-    wcList.append(el("button", { class: "navitem" + (active ? " active" : ""), title: wc.path, onclick: () => openWc(wc.path) },
-      wc.name, el("span", { class: "sub" }, wc.path)));
+    wcList.append(el("button", { class: "navitem" + (active ? " active" : ""), title: wc.path, "aria-current": active ? "page" : null,
+      onclick: () => openWc(wc.path) }, wc.name, el("span", { class: "sub" }, shortPath(wc.path))));
   }
   const sl = $("serverList");
   sl.replaceChildren();
   if (!state.servers.length) sl.append(el("div", { class: "empty" }, "None yet"));
   for (const s of state.servers) {
     const active = state.view && state.view.type === "browse" && state.view.server === s.url;
-    sl.append(el("button", { class: "navitem" + (active ? " active" : ""), title: s.url, onclick: () => openBrowse(s.url, s.url, s.name) },
+    sl.append(el("button", { class: "navitem" + (active ? " active" : ""), title: s.url, "aria-current": active ? "page" : null,
+      onclick: () => openBrowse(s.url, s.url, s.name) },
       s.name, el("span", { class: "sub" }, s.url)));
   }
 }
@@ -522,7 +533,8 @@ function renderChanges() {
     };
     const tr = el("tr", { class: ch.path === state.diffPath ? "sel" : "", onclick: () => showDiff(ch) },
       el("td", {}, box),
-      el("td", {}, el("span", { class: "st st-" + si.cls, title: si.label }, si.letter)),
+      el("td", {}, el("span", { class: "st st-" + si.cls, title: si.label, "aria-hidden": "true" }, si.letter),
+        el("span", { class: "sr-only" }, si.label)),
       el("td", {}, ch.repoItem ? el("span", { class: "incoming", title: "changed on the server: " + ch.repoItem }, "*") : ""),
       el("td", { class: "path", title: ch.path + (ch.changelist ? "  (changelist " + ch.changelist + ")" : "") },
         ch.path + (ch.isDir ? "/" : ""), lockMark(ch.lockState, ch.lock)));
@@ -808,13 +820,40 @@ function currentTab() { const t = store("tab"); return TABS.includes(t) ? t : "c
 
 function setTab(tab) {
   store("tab", tab);
-  for (const b of document.querySelectorAll(".tabs button")) b.classList.toggle("active", b.dataset.tab === tab);
+  for (const b of document.querySelectorAll(".tabs [role=tab]")) {
+    const on = b.dataset.tab === tab;
+    b.setAttribute("aria-selected", on ? "true" : "false");
+    b.tabIndex = on ? 0 : -1; // one Tab stop for the tab row; arrow keys move within it
+  }
   for (const t of TABS) $("tab-" + t).hidden = tab !== t;
   if (tab === "history" && !state.log.length && state.info) loadLog(true);
   if (tab === "locks" && state.view && state.view.type === "wc") loadLocks();
   if (tab === "branches" && state.view && state.view.type === "wc") loadBranches();
 }
-for (const b of document.querySelectorAll(".tabs button")) b.onclick = () => setTab(b.dataset.tab);
+for (const b of document.querySelectorAll(".tabs [role=tab]")) b.onclick = () => setTab(b.dataset.tab);
+
+// Arrow keys, Home and End move between the tabs; Enter or Space (a click)
+// opens one. Opening asks the server for History, Branches and Locks, so
+// focus moving past a tab doesn't open it.
+document.querySelector(".tabs").addEventListener("keydown", e => {
+  const tabs = [...document.querySelectorAll(".tabs [role=tab]")];
+  const i = tabs.indexOf(document.activeElement);
+  if (i < 0) return;
+  const to = { ArrowRight: (i + 1) % tabs.length, ArrowLeft: (i - 1 + tabs.length) % tabs.length, Home: 0, End: tabs.length - 1 }[e.key];
+  if (to === undefined) return;
+  e.preventDefault();
+  for (const t of tabs) t.tabIndex = t === tabs[to] ? 0 : -1;
+  tabs[to].focus();
+});
+// Ctrl+1..4 open the tabs from anywhere in a working copy.
+document.addEventListener("keydown", e => {
+  if (!(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey || modalOpen() || !state.view || state.view.type !== "wc") return;
+  const tab = TABS[Number(e.key) - 1];
+  if (!tab) return;
+  e.preventDefault();
+  setTab(tab);
+  document.getElementById("tabbtn-" + tab).focus();
+});
 
 const LOG_PAGE = 100;
 

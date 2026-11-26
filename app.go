@@ -144,11 +144,13 @@ type Startup struct {
 	OS            string               `json:"os"`
 	WorkingCopies []config.WorkingCopy `json:"workingCopies"`
 	Servers       []config.Server      `json:"servers"`
+	Home          string               `json:"home"`        // the user's home folder, shown as ~
 	UpdateCheck   bool                 `json:"updateCheck"` // check for new releases automatically
 }
 
 func (a *App) Startup() Startup {
 	s := Startup{Version: a.Version(), OS: goruntime.GOOS}
+	s.Home, _ = os.UserHomeDir()
 	if a.svn == nil {
 		s.SvnError = a.svnErr.Error()
 	} else {
