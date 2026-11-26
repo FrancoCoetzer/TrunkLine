@@ -85,6 +85,31 @@
   .commit { border-top: 1px solid var(--line); padding: 10px; display: flex; flex-direction: column; gap: 6px; }
   .commit textarea { width: 100%; min-height: 70px; resize: vertical; }
   .commit .row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+  /* Revert throws work away: kept apart from Commit, at the far end */
+  .commit .row #revertBtn { order: 99; margin-left: auto; }
+  .banner.inline { margin: 0; display: flex; gap: 8px; align-items: flex-start; white-space: pre-wrap; line-height: 1.45; }
+  .banner.inline > span { flex: 1; }
+  .banner.inline.info { border-color: var(--cyan); background: var(--cyan-tint); }
+  .banner.inline button { padding: 0 6px; font-size: 16px; line-height: 1.2; }
+
+  button.icon { min-width: 30px; font-size: 15px; line-height: 1; padding: 4px 8px; }
+  /* The "More" menu: a popover list of buttons under its trigger (placed by script before it opens) */
+  .menu { margin: 0; inset: auto; padding: 4px; min-width: 240px; background: var(--panel); color: var(--ink);
+    border: 1px solid var(--line-strong); border-radius: var(--radius-lg); box-shadow: 0 8px 28px rgb(0 0 0 / .45); }
+  .menu:popover-open { display: flex; flex-direction: column; }
+  .menu button { text-align: left; background: transparent; border-color: transparent; padding: 7px 10px; }
+  .menu button:hover:not(:disabled), .menu button:focus-visible { background: var(--panel-hi); border-color: transparent; }
+  .menu hr { border: none; border-top: 1px solid var(--line); margin: 4px 2px; }
+  .menu {
+    opacity: 1; transition: opacity var(--dur-fast) var(--ease-out), translate var(--dur-fast) var(--ease-out);
+    @starting-style { opacity: 0; }
+  }
+  @media (prefers-reduced-motion: no-preference) { .menu:popover-open { @starting-style { translate: 0 -4px; } } }
+  #wcMenuBtn[aria-expanded="true"] { border-color: var(--cyan); color: var(--cyan); }
+
+  /* Rows you can move through with the keyboard */
+  table.list tr:focus-visible { outline: 2px solid var(--cyan); outline-offset: -2px; }
+  #mergeRevs tr { cursor: pointer; }
 
   .diff { font-family: var(--mono); font-size: 12px; line-height: 1.45; padding: 8px 0; white-space: pre; }
   .diff div { padding: 0 12px; min-height: 1.45em; }
@@ -233,7 +258,7 @@
 <body>
 <header>
   <span class="brand">Trunk<b>Line</b></span>
-  <span id="svnChip" class="chip">svn</span>
+  <span id="svnChip" class="chip err" hidden>svn missing</span>
   <span class="spacer"></span>
   <button class="ghost" id="version" title="About TrunkLine and updates"></button>
 </header>
@@ -283,15 +308,19 @@
         <button class="chip info" id="wcBranch" title="Branches: switch, or make a new one" hidden></button>
         <span class="url" id="wcUrl"></span>
         <span class="chip" id="wcRev"></span>
-        <span class="chip info" id="wcIncoming" hidden></span>
+        <button class="chip info" id="wcIncoming" hidden title="Ask the server again what an update would bring"></button>
         <span class="spacer"></span>
         <button class="primary" id="updateBtn" title="svn update">Update</button>
-        <button id="checkBtn" title="Ask the server what an update would bring (svn status -u)">Check server</button>
-        <button id="refreshBtn" title="Refresh (F5)">Refresh</button>
-        <button id="browseWcBtn" title="Browse this repository">Browse repo</button>
-        <button id="openWcBtn" title="Open the folder">Open folder</button>
-        <button id="cleanupBtn" title="svn cleanup: release a working copy locked by an interrupted operation">Cleanup</button>
-        <button class="ghost" id="removeWcBtn" title="Take this off the list (the files stay)">Remove</button>
+        <button class="icon" id="refreshBtn" title="Refresh (F5)" aria-label="Refresh">↻</button>
+        <button class="icon" id="wcMenuBtn" popovertarget="wcMenu" aria-haspopup="true" aria-expanded="false" title="More" aria-label="More actions">⋯</button>
+        <div id="wcMenu" class="menu" popover>
+          <button id="checkBtn" title="Ask the server what an update would bring (svn status -u)">Check the server for changes</button>
+          <button id="browseWcBtn">Browse the repository</button>
+          <button id="openWcBtn">Open the folder</button>
+          <button id="cleanupBtn" title="svn cleanup: release a working copy locked by an interrupted operation">Clean up (after an interrupted operation)</button>
+          <hr>
+          <button class="danger" id="removeWcBtn" title="The files stay on disk">Remove from the list</button>
+        </div>
       </div>
       <div class="tabs" role="tablist" aria-label="Working copy">
         <button role="tab" id="tabbtn-changes" data-tab="changes" aria-selected="true" tabindex="0" title="Ctrl+1">Changes</button>
@@ -310,6 +339,10 @@
           </div>
           <div class="scroll"><table class="list" aria-label="Changes"><tbody id="changes"></tbody></table></div>
           <div class="commit">
+            <div id="wcBanner" class="banner inline" role="status" hidden>
+              <span id="wcBannerText"></span>
+              <button type="button" class="ghost" id="wcBannerClose" aria-label="Dismiss" title="Dismiss">×</button>
+            </div>
             <textarea id="commitMsg" placeholder="Commit message (Ctrl+Enter to commit)"></textarea>
             <div class="row">
               <button class="primary" id="commitBtn">Commit</button>

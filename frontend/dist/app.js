@@ -364,6 +364,118 @@ async function withProgress(title, f) {
 $("progCancel").onclick = () => Go().Cancel();
 $("progDlg").addEventListener("cancel", e => { if ($("progClose").disabled) e.preventDefault(); });
 
+// ---- Keyboard: moving through list rows ------------------------------------------------------
+//
+// A list is one Tab stop: one row is focusable at a time (a roving tabindex).
+// Arrow keys, Home and End move between rows and run the row's _move (show
+// its diff or revision); Space runs _space (tick it); Enter runs _enter
+// (open it). Checkboxes in such rows leave the Tab order: Space ticks them.
+
+function rovingRows(tb, refocus) {
+  const rows = [...tb.querySelectorAll(":scope > tr")].filter(r => r._move || r._space || r._enter);
+  if (!rows.length) return;
+  const cur = rows.find(r => r.dataset.key && r.dataset.key === tb._lastKey) || rows.find(r => r.classList.contains("sel")) || rows[0];
+  for (const r of rows) {
+    r.tabIndex = r === cur ? 0 : -1;
+    for (const b of r.querySelectorAll("input[type=checkbox]")) b.tabIndex = -1;
+  }
+  if (refocus) cur.focus();
+  if (tb._roving) return;
+  tb._roving = true;
+  tb.addEventListener("focusin", e => {
+    const r = e.target.closest("tr");
+    if (r && r.parentElement === tb && r.dataset.key) tb._lastKey = r.dataset.key;
+  });
+  tb.addEventListener("click", e => {
+    const r = e.target.closest("tr");
+    if (!r || r.parentElement !== tb || !(r._move || r._space || r._enter)) return;
+    for (const x of tb.querySelectorAll(":scope > tr")) if (x.tabIndex === 0) x.tabIndex = -1;
+    r.tabIndex = 0;
+    if (r.dataset.key) tb._lastKey = r.dataset.key;
+  });
+  tb.addEventListener("keydown", e => {
+    const rows = [...tb.querySelectorAll(":scope > tr")].filter(r => r._move || r._space || r._enter);
+    const i = rows.indexOf(document.activeElement);
+    if (i < 0 || e.ctrlKey || e.metaKey || e.altKey) return;
+    const row = rows[i];
+    const to = { ArrowDown: Math.min(i + 1, rows.length - 1), ArrowUp: Math.max(i - 1, 0), Home: 0, End: rows.length - 1 }[e.key];
+    if (to !== undefined) {
+      e.preventDefault();
+      for (const r of rows) r.tabIndex = -1;
+      rows[to].tabIndex = 0;
+      rows[to].focus();
+      rows[to].scrollIntoView({ block: "nearest" });
+      if (rows[to]._move) rows[to]._move();
+    } else if (e.key === " " && row._space) {
+      e.preventDefault();
+      row._space();
+    } else if (e.key === "Enter" && row._enter) {
+      e.preventDefault();
+      row._enter();
+    }
+  });
+}
+
+// lockRow and mergeRow make a row from cells whose first cell holds box:
+// Space ticks it; in the merge list a click anywhere on the row does too.
+function lockRow(f, box, ...cells) {
+  const tr = el("tr", {}, ...cells);
+  tr.dataset.key = f.path;
+  tr._space = () => box.click();
+  return tr;
+}
+function mergeRow(box, ...cells) {
+  const tr = el("tr", {}, ...cells);
+  tr.dataset.key = box.dataset.rev;
+  tr._space = () => box.click();
+  tr.addEventListener("click", e => { if (e.target !== box) box.click(); });
+  return tr;
+}
+
+// ---- The banner above the commit box --------------------------------------------------------
+//
+// Guidance the user needs to act on (a merge to commit, conflicts to resolve)
+// stays here until dealt with, instead of in a message that goes away.
+
+state.banner = null; // {kind: "conflict"|"info", text}
+function setBanner(kind, text) {
+  state.banner = { kind, text };
+  $("wcBannerText").textContent = text;
+  $("wcBanner").className = "banner inline " + (kind === "conflict" ? "err" : "info");
+  $("wcBanner").hidden = false;
+}
+function clearBanner() {
+  state.banner = null;
+  $("wcBanner").hidden = true;
+}
+$("wcBannerClose").onclick = clearBanner;
+
+// ---- The "More" menu of the working copy bar ---------------------------------------------------
+
+$("wcMenu").addEventListener("beforetoggle", e => {
+  if (e.newState !== "open") return;
+  // Place it under its button, right edges lined up, before it shows.
+  const r = $("wcMenuBtn").getBoundingClientRect();
+  $("wcMenu").style.top = Math.round(r.bottom + 4) + "px";
+  $("wcMenu").style.right = Math.round(document.documentElement.clientWidth - r.right) + "px";
+});
+$("wcMenu").addEventListener("toggle", e => {
+  $("wcMenuBtn").setAttribute("aria-expanded", e.newState === "open" ? "true" : "false");
+  if (e.newState === "open" && $("wcMenuBtn").matches(":focus-visible")) $("wcMenu").querySelector("button").focus();
+});
+$("wcMenu").addEventListener("click", e => { if (e.target.closest("button")) $("wcMenu").hidePopover(); });
+$("wcMenu").addEventListener("keydown", e => {
+  const items = [...$("wcMenu").querySelectorAll("button")];
+  const i = items.indexOf(document.activeElement);
+  const to = { ArrowDown: (i + 1) % items.length, ArrowUp: (i - 1 + items.length) % items.length, Home: 0, End: items.length - 1 }[e.key];
+  if (to === undefined || i < 0) return;
+  e.preventDefault();
+  items[to].focus();
+});
+
+// The "N incoming" chip asks the server again.
+$("wcIncoming").onclick = () => busy($("wcIncoming"), () => refreshWc(true));
+
 // ---- Sidebar -------------------------------------------------------------------------
 
 // shortPath shows a folder for the sidebar: the home folder as ~, and a long
@@ -451,6 +563,7 @@ async function openWc(path) {
     state.logRev = null;
     state.incoming = false;
     state.shownPaths = null;
+    clearBanner();
     setIncoming(0);
     setTimeout(checkIncoming, 1500);
     state.locks = [];
@@ -535,6 +648,7 @@ function visibleChanges() {
 }
 
 function renderChanges() {
+  const hadFocus = $("changes").contains(document.activeElement);
   const rows = visibleChanges();
   // Rows that weren't listed last time get a brief highlight (not on the first listing).
   const before = state.shownPaths;
@@ -569,9 +683,24 @@ function renderChanges() {
       el("td", { class: "path", title: ch.path + (ch.changelist ? "  (changelist " + ch.changelist + ")" : "") },
         ch.path + (ch.isDir ? "/" : ""), lockMark(ch.lockState, ch.lock)));
     tr.ondblclick = () => Go().Open(state.view.path, ch.path);
+    tr.dataset.key = ch.path;
+    tr._move = () => showDiff(ch);
+    if (can) tr._space = () => box.click();
+    tr._enter = () => Go().Open(state.view.path, ch.path);
     tb.append(tr);
   }
   if (!rows.length) tb.append(el("tr", {}, el("td", { colspan: 4, class: "placeholder" }, "No local changes")));
+  rovingRows(tb, hadFocus);
+  // The file whose diff is shown has gone from the list (committed, reverted, ignored): clear the diff.
+  if (state.diffPath && !state.changes.some(c => c.path === state.diffPath)) {
+    state.diffPath = null;
+    $("diff").replaceChildren();
+    $("diffTitle").textContent = "Pick a file to see its changes";
+    for (const id of ["openFileBtn", "blameFileBtn", "historyFileBtn"]) $(id).hidden = true;
+  }
+  // The banner's guidance is done with once there's nothing left to act on.
+  if (state.banner && state.banner.kind === "conflict" && !state.changes.some(c => c.item === "conflicted" || c.props === "conflicted" || c.treeConflict)) clearBanner();
+  if (state.banner && !state.changes.some(c => localChange(c) && c.item !== "unversioned")) clearBanner();
   const local = state.changes.filter(localChange).length;
   $("changeCount").textContent = local === 1 ? "1 change" : local + " changes";
   updateChangeButtons();
@@ -695,7 +824,9 @@ async function commit() {
     $("commitMsg").value = "";
     state.log = [];
     toast(rev ? `Committed revision ${rev}.` : "Committed.", "ok");
+    clearBanner();
     await refreshWc(false);
+    $("commitMsg").focus(); // the Commit button is disabled now, which would drop focus to the page
   });
 }
 $("commitBtn").onclick = commit;
@@ -744,9 +875,8 @@ $("ignoreBtn").onclick = async () => {
     for (const f of folders) { state.checked.add(f); state.known.add(f); }
     await refreshWc(false);
     const names = folders.map(f => f === "." ? "the top folder" : f + "/").join(", ");
-    toast(folders.length
-      ? `Ignored. The ignore list of ${names} changed: it's ticked, so commit it and everyone gets the same ignores.`
-      : "Those were already ignored.", "ok");
+    if (folders.length) setBanner("info", `Ignored. The ignore list of ${names} changed: it's ticked, so commit it and everyone gets the same ignores.`);
+    else toast("Those were already ignored.", "ok");
   });
 };
 
@@ -806,8 +936,8 @@ function conflictsAfter(what) {
   if (!n) return false;
   $("progDlg").close();
   setTab("changes");
-  toast(`${what}, but ${n} file${n === 1 ? "" : "s"} now ${n === 1 ? "has a conflict" : "have conflicts"} between your ` +
-    "changes and the incoming ones. They're marked C under Changes: resolve them before committing.", "err");
+  setBanner("conflict", `${what}, but ${n} file${n === 1 ? "" : "s"} ${n === 1 ? "has a conflict" : "have conflicts"} between your ` +
+    "changes and the incoming ones (marked C). Pick each one, look at its diff, then resolve it below before committing.");
   return true;
 }
 
@@ -960,16 +1090,21 @@ function showFileHistory(rel) {
 
 function renderLog() {
   const tb = $("log");
+  const hadFocus = tb.contains(document.activeElement);
   tb.replaceChildren();
   for (const e of state.log) {
     const first = (e.message || "").split("\n")[0];
-    tb.append(el("tr", { class: e.revision === state.logRev ? "sel" : "", onclick: () => showRevision(e) },
+    const tr = el("tr", { class: e.revision === state.logRev ? "sel" : "", onclick: () => showRevision(e) },
       el("td", { class: "muted" }, "r" + e.revision),
       el("td", {}, e.author || ""),
       el("td", { class: "muted" }, fmtDate(e.date)),
-      el("td", { class: "msg", title: e.message }, first)));
+      el("td", { class: "msg", title: e.message }, first));
+    tr.dataset.key = String(e.revision);
+    tr._move = tr._enter = () => showRevision(e);
+    tb.append(tr);
   }
   if (!state.log.length) tb.append(el("tr", {}, el("td", { class: "placeholder" }, "No history")));
+  rovingRows(tb, hadFocus);
 }
 
 function showRevision(e) {
@@ -1055,6 +1190,7 @@ async function listBrowse() {
     const entries = await call("List", url);
     if (state.view.url !== url) return;
     const tb = $("entries");
+    const hadFocus = tb.contains(document.activeElement);
     tb.replaceChildren();
     for (const e of entries) {
       const dir = e.kind === "dir";
@@ -1073,9 +1209,13 @@ async function listBrowse() {
         tr.title = "Click to see who changed each line (blame)";
         tr.onclick = () => openBlame(() => call("BlameURL", child));
       }
+      tr.dataset.key = e.name;
+      tr._enter = tr.onclick;
       tb.append(tr);
     }
     if (!entries.length) tb.append(el("tr", {}, el("td", { class: "placeholder", colspan: 5 }, "Empty folder")));
+    tb._lastKey = null; // a new folder: start at its first row
+    rovingRows(tb, hadFocus);
   } catch (e) { report(e); }
 }
 
@@ -1236,16 +1376,17 @@ async function openMerge(br) {
   const tb = $("mergeRevs");
   tb.replaceChildren();
   for (const e of plan.revisions) {
-    const box = el("input", { type: "checkbox", "data-rev": e.revision });
+    const box = el("input", { type: "checkbox", "data-rev": e.revision, "aria-label": `r${e.revision}` });
     box.checked = true;
     box.onchange = updateMergeHow;
-    tb.append(el("tr", {},
+    tb.append(mergeRow(box,
       el("td", {}, box),
       el("td", { class: "muted" }, "r" + e.revision),
       el("td", {}, e.author || ""),
       el("td", { class: "muted" }, fmtDate(e.date)),
       el("td", { class: "msg", title: e.message }, (e.message || "").split("\n")[0])));
   }
+  rovingRows(tb, false);
   $("mergeCount").textContent = `${plan.total} commit${plan.total === 1 ? "" : "s"} you don't have yet` +
     (plan.total > plan.revisions.length ? ` (the newest ${plan.revisions.length} are listed)` : "");
   $("mergeAll").checked = true;
@@ -1298,8 +1439,8 @@ async function openMerge(br) {
   if (!conflictsAfter(`Merged ${br.name}`)) {
     $("progDlg").close();
     setTab("changes");
-    toast(`Merged ${br.name}. Check the changes, then commit them together: they're all ticked and the message is filled in. ` +
-      "Changed your mind? Tick all and Revert.", "ok");
+    setBanner("info", `Merged ${br.name}. Check the changes, then commit them together: they're all ticked and the ` +
+      "message is filled in. Changed your mind? Revert them.");
   }
 }
 
@@ -1339,7 +1480,7 @@ async function undoRevision(e) {
   if (!conflictsAfter(`Undid r${e.revision}`)) {
     $("progDlg").close();
     setTab("changes");
-    toast(`r${e.revision} is undone in your working copy. Check the changes, then commit them (the message is filled in).`, "ok");
+    setBanner("info", `r${e.revision} is undone in your working copy. Check the changes, then commit them (the message is filled in).`);
   }
 }
 
@@ -1575,6 +1716,7 @@ async function loadLocks() {
 
 function renderLocks() {
   const tb = $("locks");
+  const hadFocus = tb.contains(document.activeElement);
   tb.replaceChildren();
   for (const f of state.locks) {
     const box = el("input", { type: "checkbox", "aria-label": "Select " + f.path });
@@ -1585,13 +1727,14 @@ function renderLocks() {
     else if (f.state) lockCell = el("span", { class: "lock-" + f.state }, LOCK_TEXT[f.state] +
       (f.state === "stolen" && f.lock ? " by " + f.lock.owner : "") + (f.state !== "mine" ? " (Update clears it)" : ""));
     else lockCell = el("span", { class: "muted" }, f.needsLock ? "needs lock: read-only until you lock it" : "not locked");
-    tb.append(el("tr", {},
+    tb.append(lockRow(f, box,
       el("td", {}, box),
       el("td", { class: "path", title: f.path }, f.path, f.modified ? el("span", { class: "lockmark st-modified" }, "[modified]") : null),
       el("td", {}, lockCell),
       el("td", { class: "msg", title: f.lock ? f.lock.comment : "" }, f.lock ? f.lock.comment : ""),
       el("td", { class: "muted" }, f.lock ? fmtDate(f.lock.created) : "")));
   }
+  rovingRows(tb, hadFocus);
   const mine = state.locks.filter(f => f.state === "mine").length;
   const others = state.locks.filter(f => f.state === "other").length;
   $("locksCount").textContent = state.locks.length
@@ -1872,17 +2015,14 @@ async function start() {
   state.servers = s.servers;
   $("version").textContent = s.version;
   if (s.svnError) {
-    $("svnChip").textContent = "svn missing";
-    $("svnChip").className = "chip err";
+    $("svnChip").hidden = false;
     const win = s.os === "windows";
     $("noSvn").textContent = "The svn command-line client was not found: " + s.svnError + ". " + (win
       ? "Install TortoiseSVN and tick \"command line client tools\" in its installer (or install SlikSVN), then restart TrunkLine."
       : "Install it (Ubuntu: sudo apt install subversion), then restart TrunkLine.");
     $("noSvn").hidden = false;
   } else {
-    $("svnChip").textContent = "svn " + s.svnVersion;
-    $("svnChip").className = "chip ok";
-    $("svnChip").title = s.svnPath;
+    $("svnChip").hidden = true;
   }
   $("showUnversioned").checked = store("showUnversioned") !== "0";
   renderSidebar();
