@@ -19,7 +19,9 @@ func (c *Client) GetProp(ctx context.Context, o Opts, name, path string) (string
 		}
 		return "", err
 	}
-	return string(out), nil
+	// svn keeps svn:* properties with LF line endings but prints them with the
+	// system's (CRLF on Windows): give the stored value.
+	return strings.ReplaceAll(string(out), "\r\n", "\n"), nil
 }
 
 // SetProp sets property name on a working copy path (a local change, to be

@@ -3,7 +3,6 @@ package svn
 import (
 	"context"
 	"fmt"
-	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -27,7 +26,7 @@ func newRepo(t *testing.T) (*Client, string, string) {
 	if out, err := exec.Command("svnadmin", "create", repo).CombinedOutput(); err != nil {
 		t.Fatalf("svnadmin: %v\n%s", err, out)
 	}
-	root := (&url.URL{Scheme: "file", Path: filepath.ToSlash(repo)}).String()
+	root := FileURL(repo)
 	ctx := context.Background()
 	if _, err := c.run(ctx, Opts{}, nil, "mkdir", "-m", "layout", "--",
 		root+"/trunk", root+"/branches", root+"/tags"); err != nil {
@@ -394,14 +393,14 @@ func TestIgnore(t *testing.T) {
 func TestRelocate(t *testing.T) {
 	c, root, wc := newRepo(t)
 	ctx := context.Background()
-	oldPath := strings.TrimPrefix(root, "file://")
+	oldPath := FilePath(root)
 
 	// The same repository at a new address (a copy keeps its UUID).
 	newPath := filepath.Join(t.TempDir(), "moved")
 	if out, err := exec.Command("svnadmin", "hotcopy", oldPath, newPath).CombinedOutput(); err != nil {
 		t.Fatalf("%v %s", err, out)
 	}
-	newRoot := "file://" + filepath.ToSlash(newPath)
+	newRoot := FileURL(newPath)
 	if err := c.Relocate(ctx, Opts{}, root, newRoot, wc); err != nil {
 		t.Fatal(err)
 	}
@@ -418,10 +417,26 @@ func TestRelocate(t *testing.T) {
 	if out, err := exec.Command("svnadmin", "create", other).CombinedOutput(); err != nil {
 		t.Fatalf("%v %s", err, out)
 	}
-	if err := c.Relocate(ctx, Opts{}, newRoot, "file://"+filepath.ToSlash(other), wc); err == nil {
+	if err := c.Relocate(ctx, Opts{}, newRoot, FileURL(other), wc); err == nil {
 		t.Error("relocating to a different repository was allowed")
 	}
 	if info, _ := c.Info(ctx, Opts{}, wc); info.RepoRoot != newRoot {
 		t.Errorf("refused relocate changed the working copy: %s", info.RepoRoot)
+	}
+}
+
+func TestSearchGlob(t *testing.T) {
+	for in, want := range map[string]string{
+		"motor":     "*motor*",
+		"a[1]":      `*a\[1\]*`,
+		"Fix*drift": "Fix*drift", // the user's own glob
+		".":         "*[.]*",     // would match "." and ".." on Windows
+		"..":        "*[.][.]*",
+		"*.*":       "*[.]*",
+		"v1.2":      "*v1.2*", // has letters: can't match "." or ".."
+	} {
+		if got := searchGlob(in); got != want {
+			t.Errorf("searchGlob(%q) = %q, want %q", in, got, want)
+		}
 	}
 }

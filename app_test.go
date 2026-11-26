@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -28,7 +27,7 @@ func testApp(t *testing.T) (*App, string) {
 	if out, err := exec.Command("svnadmin", "create", repo).CombinedOutput(); err != nil {
 		t.Fatalf("svnadmin: %v\n%s", err, out)
 	}
-	root := (&url.URL{Scheme: "file", Path: filepath.ToSlash(repo)}).String()
+	root := svn.FileURL(repo)
 	wc := filepath.Join(dir, "wc")
 	if err := c.Checkout(context.Background(), svn.Opts{}, root, wc, nil); err != nil {
 		t.Fatal(err)
@@ -250,8 +249,8 @@ func TestLockFiles(t *testing.T) {
 	if err := a.Add(wc, []string{"cad.step", "code.c"}); err != nil {
 		t.Fatal(err)
 	}
-	if out, err := exec.Command("svn", "propset", "svn:needs-lock", "*", filepath.Join(wc, "cad.step")).CombinedOutput(); err != nil {
-		t.Fatalf("%v %s", err, out)
+	if err := a.svn.SetProp(ctx, svn.Opts{}, "svn:needs-lock", "*", filepath.Join(wc, "cad.step")); err != nil {
+		t.Fatal(err)
 	}
 	if _, err := a.Commit(wc, "add", []string{"cad.step", "code.c"}, CommitOptions{AllowMarkers: false, KeepLocks: false}); err != nil {
 		t.Fatal(err)
@@ -556,10 +555,10 @@ func TestRelocateApp(t *testing.T) {
 		t.Fatal(err)
 	}
 	moved := filepath.Join(t.TempDir(), "moved")
-	if out, err := exec.Command("svnadmin", "hotcopy", strings.TrimPrefix(old, "file://"), moved).CombinedOutput(); err != nil {
+	if out, err := exec.Command("svnadmin", "hotcopy", svn.FilePath(old), moved).CombinedOutput(); err != nil {
 		t.Fatalf("%v %s", err, out)
 	}
-	newRoot := "file://" + filepath.ToSlash(moved)
+	newRoot := svn.FileURL(moved)
 
 	for _, bad := range []string{"", "ftp://x/repo", "not a url", old} {
 		if _, err := a.Relocate(wc, bad); err == nil {
@@ -570,7 +569,7 @@ func TestRelocateApp(t *testing.T) {
 	if out, err := exec.Command("svnadmin", "create", other).CombinedOutput(); err != nil {
 		t.Fatalf("%v %s", err, out)
 	}
-	if _, err := a.Relocate(wc, "file://"+filepath.ToSlash(other)); err == nil || !strings.Contains(err.Error(), "isn't the same repository") {
+	if _, err := a.Relocate(wc, svn.FileURL(other)); err == nil || !strings.Contains(err.Error(), "isn't the same repository") {
 		t.Errorf("relocating to another repository: %v", err)
 	}
 	got, err := a.Relocate(wc, newRoot+"/")

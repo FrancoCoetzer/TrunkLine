@@ -7,9 +7,10 @@ import (
 	"syscall"
 )
 
-// The app is a GUI program (-H windowsgui); without this every svn call
-// would flash a console window.
-func hideWindow(cmd *exec.Cmd) {
+// prepare readies an svn command for Windows: no console window. The app
+// is a GUI program (-H windowsgui), and without this every svn call would
+// flash one up.
+func prepare(cmd *exec.Cmd) {
 	const createNoWindow = 0x08000000
 	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: createNoWindow}
 }

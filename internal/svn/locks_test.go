@@ -41,7 +41,7 @@ func TestLocks(t *testing.T) {
 	if err := c.Add(ctx, Opts{}, filepath.Join(a, "cad.step"), filepath.Join(a, "code.c")); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := c.run(ctx, Opts{}, nil, "propset", "svn:needs-lock", "*", filepath.Join(a, "cad.step")); err != nil {
+	if err := c.SetProp(ctx, Opts{}, "svn:needs-lock", "*", filepath.Join(a, "cad.step")); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := c.Commit(ctx, Opts{}, "add", []string{filepath.Join(a, "cad.step"), filepath.Join(a, "code.c")}); err != nil {

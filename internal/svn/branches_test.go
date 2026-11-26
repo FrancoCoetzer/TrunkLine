@@ -158,3 +158,18 @@ func TestBranchAndSwitch(t *testing.T) {
 		t.Error("deleted branch should still be in history at r3")
 	}
 }
+
+func TestFileURL(t *testing.T) {
+	for _, c := range []struct{ path, url string }{
+		{"/home/me/repo", "file:///home/me/repo"},
+		{"/tmp/my repo", "file:///tmp/my%20repo"},
+		{"C:/Users/me/repo", "file:///C:/Users/me/repo"},
+	} {
+		if got := FileURL(c.path); got != c.url {
+			t.Errorf("FileURL(%q) = %q, want %q", c.path, got, c.url)
+		}
+		if back := filepath.ToSlash(FilePath(c.url)); back != c.path {
+			t.Errorf("FilePath(%q) = %q, want %q", c.url, back, c.path)
+		}
+	}
+}

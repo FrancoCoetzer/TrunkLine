@@ -175,10 +175,11 @@ func (o Opts) args(sub []string) []string {
 func (c *Client) command(ctx context.Context, o Opts, args []string) *exec.Cmd {
 	cmd := exec.CommandContext(ctx, c.Path, o.args(args)...)
 	cmd.Env = environ()
+	cmd.Dir = emptyDir()
 	if o.Creds.Username != "" && o.Creds.Password != "" {
 		cmd.Stdin = strings.NewReader(o.Creds.Password + "\n")
 	}
-	hideWindow(cmd)
+	prepare(cmd)
 	return cmd
 }
 
@@ -234,6 +235,23 @@ func (c *Client) stream(ctx context.Context, o Opts, line func(string), args ...
 	}
 	return nil
 }
+
+// emptyDir is a folder with nothing in it, that svn runs in.
+//
+// svn.exe on Windows (TortoiseSVN's, at least) expands wildcards in its
+// arguments itself, against the folder it runs in, quoted or not: in a folder
+// holding alpha.txt, `svn info "*a*"` is `svn info alpha.txt`. A pattern that
+// matches nothing is passed on as typed. So svn runs where nothing can match
+// a pattern such as a log search's *motor*. ("*" alone, and other patterns of
+// only * ? and dots, still match Windows' "." and ".." entries: searchGlob
+// never produces one, and svn:needs-lock's "*" is set from a file.) Every
+// path svn is given is absolute, so the folder is never used for anything else.
+var emptyDir = sync.OnceValue(func() string {
+	if d, err := os.MkdirTemp("", "trunkline-svn-"); err == nil {
+		return d
+	}
+	return "" // svn then runs in the app's folder
+})
 
 // environ is the process environment with svn's messages in English (the
 // error codes are what the app matches, but the text is shown to users and

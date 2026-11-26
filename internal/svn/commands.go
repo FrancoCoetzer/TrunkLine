@@ -234,6 +234,9 @@ const MaxSearchResults = 500
 // most MaxSearchResults).
 func (c *Client) LogSearch(ctx context.Context, o Opts, target string, from, limit int, search string) ([]LogEntry, error) {
 	args := []string{"log", "--xml", "-v"}
+	if strings.Trim(search, "* ") == "" {
+		search = "" // only stars: everything matches, so it's no search
+	}
 	if search == "" {
 		args = append(args, "-l", strconv.Itoa(limit))
 	} else {
@@ -491,9 +494,14 @@ func committedRevision(out string) int {
 // searchGlob turns what the user typed into an svn --search pattern.
 func searchGlob(s string) string {
 	s = strings.TrimSpace(s)
-	if strings.ContainsAny(s, "*?") {
-		return s
+	if !strings.ContainsAny(s, "*?") {
+		r := strings.NewReplacer(`\`, `\\`, `[`, `\[`, `]`, `\]`)
+		s = "*" + r.Replace(s) + "*"
 	}
-	r := strings.NewReplacer(`\`, `\\`, `[`, `\[`, `]`, `\]`)
-	return "*" + r.Replace(s) + "*"
+	// A pattern of only * ? and dots would match Windows' "." and ".." entries
+	// when svn.exe expands it (see emptyDir); "[.]" means the same to svn.
+	if strings.Trim(s, "*?.") == "" {
+		s = strings.ReplaceAll(s, ".", "[.]")
+	}
+	return s
 }

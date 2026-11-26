@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/url"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 )
@@ -142,4 +143,28 @@ func (c *Client) Exists(ctx context.Context, o Opts, u string) (bool, error) {
 		return false, nil
 	}
 	return false, err
+}
+
+// FileURL is the file:// URL of a local repository folder: file:///home/me/repo
+// on Linux, file:///C:/svn/repo on Windows (three slashes there too: with
+// two, svn reads "C:" as the name of a server).
+func FileURL(path string) string {
+	p := filepath.ToSlash(path)
+	if !strings.HasPrefix(p, "/") {
+		p = "/" + p
+	}
+	return (&url.URL{Scheme: "file", Path: p}).String()
+}
+
+// FilePath is the local folder of a file:// URL (FileURL's reverse).
+func FilePath(u string) string {
+	p, err := url.Parse(u)
+	if err != nil {
+		return ""
+	}
+	path := p.Path
+	if len(path) >= 3 && path[0] == '/' && path[2] == ':' { // /C:/... on Windows
+		path = path[1:]
+	}
+	return filepath.FromSlash(path)
 }
