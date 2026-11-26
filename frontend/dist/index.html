@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<!--
+  TrunkLine's window. Plain HTML/JS, no build step.
+  Go methods are bound as window.go.main.App.<Method>() (each returns a
+  Promise); events come through window.runtime.EventsOn. Wails injects both.
+  The logic is in app.js; the colours and controls are in theme.css.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TrunkLine</title>
+<link rel="stylesheet" href="theme.css">
+<style>
+  @layer reset { * { box-sizing: border-box; margin: 0; } }
+  html, body { height: 100%; overflow: hidden; }
+  body { display: grid; grid-template-rows: auto 1fr; }
+  [hidden] { display: none !important; }
+
+  header { display: flex; align-items: center; gap: 12px; padding: 8px 14px; border-bottom: 1px solid var(--line); background: var(--panel); }
+  header .brand { font-weight: 700; letter-spacing: .5px; }
+  header .brand b { color: var(--accent); }
+  header .spacer { flex: 1; }
+
+  .layout { display: grid; grid-template-columns: 260px 1fr; min-height: 0; }
+  aside { border-right: 1px solid var(--line); overflow: auto; padding: 12px 10px; display: flex; flex-direction: column; gap: 16px; }
+  aside section { display: flex; flex-direction: column; gap: 4px; }
+  aside .head { display: flex; align-items: center; justify-content: space-between; padding: 0 4px 4px; }
+  .navitem { display: block; width: 100%; text-align: left; background: transparent; border: 1px solid transparent; padding: 6px 8px; }
+  .navitem .sub { display: block; color: var(--ink-dim); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .navitem.active { background: var(--cyan-tint); border-color: var(--cyan); }
+  .empty { color: var(--ink-dim); padding: 4px 8px; font-size: 12px; }
+
+  main { min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+  main > .pane { flex: 1; }
+  .welcome { margin: auto; max-width: 560px; display: flex; flex-direction: column; gap: 12px; padding: 24px; }
+  .welcome h1 { font-size: 18px; }
+  .welcome .row { display: flex; gap: 8px; }
+
+  .bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px 14px; border-bottom: 1px solid var(--line); }
+  .bar .title { font-weight: 600; font-size: 14px; }
+  .bar .url { color: var(--ink-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 50ch; }
+  .bar .spacer { flex: 1; }
+  .tabs { display: flex; gap: 4px; padding: 8px 14px 0; border-bottom: 1px solid var(--line); }
+  .tabs button { border-bottom-left-radius: 0; border-bottom-right-radius: 0; border-bottom: none; }
+
+  .split { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(320px, 40%) 1fr; }
+  .pane { min-height: 0; min-width: 0; display: flex; flex-direction: column; }
+  .pane + .pane { border-left: 1px solid var(--line); }
+  .scroll { flex: 1; min-height: 0; overflow: auto; }
+  .toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 6px 10px; border-bottom: 1px solid var(--line); }
+  .toolbar label { display: flex; align-items: center; gap: 4px; font-size: 12px; }
+
+  table.list { width: 100%; }
+  table.list td { border-bottom-color: color-mix(in oklab, var(--line) 60%, transparent); white-space: nowrap; }
+  table.list tr { cursor: default; }
+  table.list tbody tr:hover { background: var(--panel); }
+  table.list tr.sel { background: var(--cyan-tint); }
+  table.list td.path { overflow: hidden; text-overflow: ellipsis; max-width: 1px; width: 100%; }
+  table.list td.msg { overflow: hidden; text-overflow: ellipsis; max-width: 1px; width: 100%; }
+  .st { display: inline-block; min-width: 1.6em; text-align: center; font-weight: 700; }
+  .st-modified, .st-replaced, .st-props { color: var(--accent); }
+  .st-added { color: var(--green); }
+  .st-deleted, .st-missing, .st-conflicted, .st-obstructed { color: var(--red); }
+  .st-unversioned, .st-external, .st-ignored { color: var(--ink-dim); }
+  .incoming { color: var(--cyan); }
+
+  .commit { border-top: 1px solid var(--line); padding: 10px; display: flex; flex-direction: column; gap: 6px; }
+  .commit textarea { width: 100%; min-height: 70px; resize: vertical; }
+  .commit .row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+
+  .diff { font-family: var(--mono); font-size: 12px; line-height: 1.45; padding: 8px 0; white-space: pre; }
+  .diff div { padding: 0 12px; min-height: 1.45em; }
+  .diff .add { background: var(--green-tint); color: #a7f3d0; }
+  .diff .del { background: var(--red-tint); color: #fecdd3; }
+  .diff .hunk { color: var(--cyan); background: var(--cyan-tint); margin-top: 6px; }
+  .diff .meta { color: var(--ink-dim); }
+  .placeholder { color: var(--ink-dim); padding: 16px; }
+
+  .rev { padding: 12px; border-bottom: 1px solid var(--line); display: flex; flex-direction: column; gap: 8px; }
+  .rev pre { white-space: pre-wrap; font-family: var(--mono); }
+  .rev .paths div { cursor: pointer; padding: 2px 4px; border-radius: 4px; }
+  .rev .paths div:hover { background: var(--panel); }
+  .rev .paths div.sel { background: var(--cyan-tint); }
+
+  .crumbs { display: flex; flex-wrap: wrap; gap: 2px; align-items: center; }
+  .crumbs button { padding: 2px 6px; }
+
+  dialog { background: var(--panel); color: var(--ink); border: 1px solid var(--line); border-radius: var(--radius-lg); padding: 18px; width: min(520px, 92vw); }
+  dialog::backdrop { background: rgb(0 0 0 / .55); }
+  dialog form { display: flex; flex-direction: column; gap: 10px; }
+  dialog h3 { font-size: 14px; }
+  dialog .field { display: flex; flex-direction: column; gap: 4px; }
+  dialog .field input { width: 100%; }
+  dialog .row { display: flex; gap: 6px; }
+  dialog .row input { flex: 1; }
+  dialog .actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
+  dialog p { color: var(--ink-dim); line-height: 1.5; }
+  #progLog { height: 260px; overflow: auto; background: var(--bg); border: 1px solid var(--line); border-radius: var(--radius); padding: 6px 8px; white-space: pre; font-size: 12px; }
+
+  #toast { position: fixed; right: 16px; bottom: 16px; max-width: min(560px, 80vw); padding: 10px 14px; border-radius: var(--radius-lg);
+    border: 1px solid var(--line); background: var(--panel-hi); white-space: pre-wrap; z-index: 10; box-shadow: 0 6px 24px rgb(0 0 0 / .4); }
+  #toast.err { border-color: var(--red); }
+  #toast.ok { border-color: var(--green); }
+  .banner { margin: 10px 14px 0; padding: 8px 12px; border-radius: var(--radius); border: 1px solid var(--accent); background: var(--accent-tint); }
+  .banner.err { border-color: var(--red); background: var(--red-tint); }
+</style>
+</head>
+<body>
+<header>
+  <span class="brand">Trunk<b>Line</b></span>
+  <span id="svnChip" class="chip">svn</span>
+  <span class="spacer"></span>
+  <span id="version" class="muted"></span>
+</header>
+
+<div class="layout">
+  <aside>
+    <section>
+      <div class="head"><h2>Working copies</h2>
+        <span><button class="ghost" id="addWcBtn" title="Add a folder you already checked out">+ Add</button></span>
+      </div>
+      <div id="wcList"></div>
+    </section>
+    <section>
+      <div class="head"><h2>Repositories</h2>
+        <button class="ghost" id="addServerBtn" title="Save a repository URL to browse and check out from">+ Add</button>
+      </div>
+      <div id="serverList"></div>
+    </section>
+  </aside>
+
+  <main>
+    <div id="noSvn" class="banner err" hidden></div>
+
+    <!-- Nothing picked yet -->
+    <div id="welcome" class="welcome">
+      <h1>Welcome to TrunkLine</h1>
+      <p class="muted">Add a repository URL to browse it and check it out, or add a folder you already checked out.</p>
+      <div class="row">
+        <button class="primary" id="welcomeServer">Add a repository</button>
+        <button id="welcomeWc">Add an existing working copy</button>
+      </div>
+    </div>
+
+    <!-- A working copy -->
+    <div id="wcView" class="pane" hidden>
+      <div class="bar">
+        <span class="title" id="wcName"></span>
+        <span class="url" id="wcUrl"></span>
+        <span class="chip" id="wcRev"></span>
+        <span class="chip info" id="wcIncoming" hidden></span>
+        <span class="spacer"></span>
+        <button class="primary" id="updateBtn" title="svn update">Update</button>
+        <button id="checkBtn" title="Ask the server what an update would bring (svn status -u)">Check server</button>
+        <button id="refreshBtn" title="Refresh (F5)">Refresh</button>
+        <button id="browseWcBtn" title="Browse this repository">Browse repo</button>
+        <button id="openWcBtn" title="Open the folder">Open folder</button>
+        <button id="cleanupBtn" title="svn cleanup: release a working copy locked by an interrupted operation">Cleanup</button>
+        <button class="ghost" id="removeWcBtn" title="Take this off the list (the files stay)">Remove</button>
+      </div>
+      <div class="tabs">
+        <button data-tab="changes" class="active">Changes</button>
+        <button data-tab="history">History</button>
+      </div>
+
+      <div id="tab-changes" class="split">
+        <div class="pane">
+          <div class="toolbar">
+            <label><input type="checkbox" id="selAll"> All</label>
+            <label><input type="checkbox" id="showUnversioned" checked> Unversioned</label>
+            <span class="spacer" style="flex:1"></span>
+            <span class="muted" id="changeCount"></span>
+          </div>
+          <div class="scroll"><table class="list"><tbody id="changes"></tbody></table></div>
+          <div class="commit">
+            <textarea id="commitMsg" placeholder="Commit message (Ctrl+Enter to commit)"></textarea>
+            <div class="row">
+              <button class="primary" id="commitBtn">Commit</button>
+              <button class="danger" id="revertBtn" title="Throw away local changes to the ticked files">Revert</button>
+              <button id="addBtn" title="svn add the ticked unversioned files">Add</button>
+              <span id="resolveBox" hidden>
+                <select id="resolveHow">
+                  <option value="working">Mark resolved (keep file as edited)</option>
+                  <option value="mine-full">Resolve: keep mine</option>
+                  <option value="theirs-full">Resolve: take theirs</option>
+                </select>
+                <button id="resolveBtn">Resolve</button>
+              </span>
+            </div>
+          </div>
+        </div>
+        <div class="pane">
+          <div class="toolbar"><span id="diffTitle" class="muted">Pick a file to see its changes</span>
+            <span style="flex:1"></span><button class="ghost" id="openFileBtn" hidden>Open file</button></div>
+          <div class="scroll"><div id="diff" class="diff"></div></div>
+        </div>
+      </div>
+
+      <div id="tab-history" class="split" hidden>
+        <div class="pane">
+          <div class="toolbar"><span class="muted">Newest first</span></div>
+          <div class="scroll"><table class="list"><tbody id="log"></tbody></table>
+            <div style="padding:8px"><button id="moreLog" hidden>Load more</button></div></div>
+        </div>
+        <div class="pane">
+          <div id="revDetail" class="rev" hidden></div>
+          <div class="scroll"><div id="revDiff" class="diff"></div></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- The repository browser -->
+    <div id="browseView" class="pane" hidden>
+      <div class="bar">
+        <span class="title" id="browseName"></span>
+        <span class="spacer"></span>
+        <button class="primary" id="checkoutHereBtn" title="A working copy you can commit from">Check out this folder</button>
+        <button id="exportHereBtn" title="Just the files: a plain copy with no link to the repository (svn export)">Export</button>
+        <button id="importHereBtn" title="Commit a folder from your computer into a new folder here (svn import)">Import folder here…</button>
+        <button class="ghost" id="removeServerBtn">Remove</button>
+      </div>
+      <div class="toolbar"><div class="crumbs" id="crumbs"></div></div>
+      <div class="scroll"><table class="list">
+        <thead><tr><th>Name</th><th>Rev</th><th>Author</th><th>Date</th><th>Size</th></tr></thead>
+        <tbody id="entries"></tbody></table></div>
+    </div>
+  </main>
+</div>
+
+<!-- Dialogs -->
+<dialog id="loginDlg"><form method="dialog">
+  <h3>Log in to <span id="loginHost"></span></h3>
+  <p id="loginWhy"></p>
+  <div class="field"><label for="loginUser">Username</label><input id="loginUser" autocomplete="username"></div>
+  <div class="field"><label for="loginPass">Password</label><input id="loginPass" type="password" autocomplete="current-password"></div>
+  <div class="actions"><button value="cancel" formnovalidate>Cancel</button><button class="primary" value="ok">Log in</button></div>
+</form></dialog>
+
+<dialog id="certDlg"><form method="dialog">
+  <h3>Untrusted certificate</h3>
+  <p>The certificate of <b id="certHost"></b> could not be verified:</p>
+  <pre id="certMsg" style="white-space:pre-wrap;font-size:12px"></pre>
+  <p>Servers inside the company often use their own certificate. Only trust it if this is the server you meant to reach.</p>
+  <div class="actions"><button value="cancel">Cancel</button><button class="primary" value="ok">Trust this server</button></div>
+</form></dialog>
+
+<dialog id="serverDlg"><form method="dialog">
+  <h3>Add a repository</h3>
+  <div class="field"><label for="serverUrl">URL</label><input id="serverUrl" placeholder="https://svn.example.com/svn/project"></div>
+  <div class="field"><label for="serverName">Name (optional)</label><input id="serverName"></div>
+  <div class="actions"><button value="cancel" formnovalidate>Cancel</button><button class="primary" value="ok">Add</button></div>
+</form></dialog>
+
+<dialog id="checkoutDlg"><form method="dialog">
+  <h3 id="coTitle">Check out</h3>
+  <p id="coNote"></p>
+  <div class="field"><label>From</label><input id="coUrl"></div>
+  <div class="field"><label for="coParent">Into folder</label>
+    <div class="row"><input id="coParent"><button type="button" id="coPick">Choose…</button></div></div>
+  <div class="field"><label for="coName">Name of the new folder</label><input id="coName"></div>
+  <p id="coTarget"></p>
+  <div class="actions"><button value="cancel" formnovalidate>Cancel</button><button class="primary" value="ok" id="coOk">Check out</button></div>
+</form></dialog>
+
+<dialog id="importDlg"><form method="dialog">
+  <h3>Import a folder</h3>
+  <p>Commits the files in a folder on your computer into a new folder in this repository.
+    Build junk svn ignores (*.o, *.pyc, …) is left out.</p>
+  <div class="field"><label for="imDir">Folder on your computer</label>
+    <div class="row"><input id="imDir"><button type="button" id="imPick">Choose…</button></div></div>
+  <div class="field"><label for="imName">New repository folder (inside the current one; use a/b for more levels, e.g. project/trunk)</label>
+    <input id="imName"></div>
+  <div class="field"><label for="imMsg">Commit message</label><input id="imMsg"></div>
+  <p id="imTarget"></p>
+  <label style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="imInPlace" checked> Make my folder the working copy, so I can keep working in it and commit</label>
+  <div class="actions"><button value="cancel" formnovalidate>Cancel</button><button class="primary" value="ok">Import</button></div>
+</form></dialog>
+
+<dialog id="progDlg"><form method="dialog">
+  <h3 id="progTitle"></h3>
+  <div id="progLog"></div>
+  <div class="actions"><button type="button" id="progCancel" class="danger">Cancel</button><button value="ok" id="progClose" disabled>Close</button></div>
+</form></dialog>
+
+<dialog id="confirmDlg"><form method="dialog">
+  <h3 id="confirmTitle"></h3>
+  <p id="confirmMsg" style="white-space:pre-wrap"></p>
+  <div class="actions"><button value="cancel">Cancel</button><button class="danger" value="ok" id="confirmOk"></button></div>
+</form></dialog>
+
+<div id="toast" hidden></div>
+<script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,101 @@
+/* TrunkLine's theme. Dark only: near-black slate panels, monospace.
+
+   Colours have one meaning everywhere:
+     --accent  amber  the main action of a group (button.primary), modified, busy, a warning
+     --cyan    cyan   selected or toggled on, info, incoming changes, keyboard focus
+     --green   green  healthy: added, connected, done
+     --red     red    a conflict, a failure, a refusal, danger
+   Page code may use the tokens and the classes below; nothing here needs a page to change its markup.
+
+   Everything is inside @layer theme, so any page rule without a layer wins over it: a page keeps only its own
+   layout and the few places it means to differ. A page's own reset (margins, box-sizing) goes in @layer reset,
+   which sits below: an unlayered "* { padding: 0 }" would beat every rule here. */
+@layer reset, theme;
+@layer theme {
+  :root {
+    --bg: #090d13;
+    --panel: #131922;
+    --panel-hi: #1c2432;
+    --line: #243042;
+    --ink: #e2e8f0;
+    --ink-dim: #8191a6;
+    --accent: #f59e0b;
+    --cyan: #38bdf8;
+    --green: #10b981;
+    --red: #f43f5e;
+    --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+    --radius: 6px;
+    --radius-lg: 8px;
+    /* tints for banners, chips, toggled buttons */
+    --accent-tint: color-mix(in oklab, var(--accent) 12%, transparent);
+    --cyan-tint: color-mix(in oklab, var(--cyan) 12%, transparent);
+    --green-tint: color-mix(in oklab, var(--green) 14%, transparent);
+    --red-tint: color-mix(in oklab, var(--red) 12%, transparent);
+    --glow-accent: 0 0 12px color-mix(in oklab, var(--accent) 35%, transparent);
+
+    color-scheme: dark;
+    accent-color: var(--cyan);
+    scrollbar-color: #2c3a50 var(--bg);
+  }
+
+  body { background: var(--bg); color: var(--ink); font-family: var(--mono); font-size: 13px; }
+  ::selection { background: color-mix(in oklab, var(--cyan) 30%, transparent); }
+  code { font-family: var(--mono); }
+
+  /* Keyboard focus: one ring for every control (an outline, so it also shows in forced-colours mode). */
+  :is(button, select, input, textarea, summary, [tabindex]):focus-visible {
+    outline: 2px solid var(--cyan);
+    outline-offset: 2px;
+  }
+  :is(input, select, textarea):focus-visible { outline-offset: 0; border-color: var(--cyan); }
+
+  /* Buttons */
+  button {
+    font-family: var(--mono); font-size: 12px; color: var(--ink); background: var(--panel-hi);
+    border: 1px solid var(--line); border-radius: var(--radius); padding: 5px 11px; cursor: pointer;
+    transition: border-color .12s, color .12s, background-color .12s, box-shadow .12s;
+  }
+  button:hover:not(:disabled) { border-color: var(--cyan); }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  /* the group's main action: an amber outline that lights up */
+  button.primary { color: var(--accent); border-color: var(--accent); font-weight: 600; }
+  button.primary:hover:not(:disabled) { border-color: var(--accent); background: var(--accent-tint); box-shadow: var(--glow-accent); }
+  /* toggled on / selected */
+  button:is(.active, [aria-pressed="true"]) { color: var(--cyan); border-color: var(--cyan); background: var(--cyan-tint); }
+  button.danger { color: var(--red); }
+  button.danger:hover:not(:disabled) { border-color: var(--red); background: var(--red-tint); }
+  button.ghost { background: transparent; border-color: transparent; color: var(--ink-dim); padding: 4px 6px; }
+  button.ghost:hover:not(:disabled) { color: var(--ink); border-color: transparent; }
+
+  /* Fields */
+  :is(input[type=text], input[type=number], input[type=search], input:not([type]), select, textarea) {
+    font-family: var(--mono); font-size: 12px; color: var(--ink); background: var(--bg);
+    border: 1px solid var(--line); border-radius: var(--radius); padding: 4px 8px;
+  }
+  /* the open dropdown list is drawn by the system (WebKitGTK / WebView2): theme its options too */
+  option, optgroup { background: var(--panel); color: var(--ink); }
+  label { color: var(--ink-dim); }
+
+  /* Panels and headings */
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius-lg); padding: 14px; }
+  h2 { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; color: var(--ink-dim); }
+  details > summary { cursor: pointer; color: var(--ink-dim); }
+
+  /* Chips: a state in a pill */
+  .chip { font-size: 11px; padding: 1px 8px; border-radius: 10px; border: 1px solid var(--line); color: var(--ink-dim); }
+  .chip:is(.ok, .pass) { color: var(--green); border-color: var(--green); }
+  .chip:is(.err, .fail, .bad) { color: var(--red); border-color: var(--red); }
+  .chip:is(.warn, .busy) { color: var(--accent); border-color: var(--accent); }
+  .chip.info { color: var(--cyan); border-color: var(--cyan); }
+
+  /* Text states (pages that use bare .ok / .err classes define them, scoped to where they mean text) */
+  .muted { color: var(--ink-dim); }
+  .ok-text { color: var(--green); }
+  .err-text { color: var(--red); }
+  .warn-text { color: var(--accent); }
+
+  /* Tables */
+  table { border-collapse: collapse; }
+  th, td { text-align: left; padding: 5px 8px; border-bottom: 1px solid var(--line); }
+  th { color: var(--ink-dim); font-weight: normal; font-size: 11px; }
+}
