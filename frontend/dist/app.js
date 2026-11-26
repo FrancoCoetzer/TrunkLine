@@ -239,11 +239,33 @@ function parseErr(e) {
 
 // call runs a Go method; a login or certificate problem asks the user and
 // tries again, anything else is thrown as {kind, message}.
+// The thin bar at the top shows while any call is waiting on svn, after 150ms
+// (so quick ones don't flicker it). Background checks don't use call().
+let inFlight = 0, busyTimer = null;
+function busyStart() {
+  if (inFlight++ > 0) return;
+  busyTimer = setTimeout(() => {
+    $("busyBar").classList.add("on");
+    document.querySelector("main").setAttribute("aria-busy", "true");
+  }, 150);
+}
+function busyEnd() {
+  if (--inFlight > 0) return;
+  clearTimeout(busyTimer);
+  $("busyBar").classList.remove("on");
+  document.querySelector("main").removeAttribute("aria-busy");
+}
+
 async function call(name, ...args) {
   let logins = 0;
   for (;;) {
     try {
-      return await Go()[name](...args);
+      busyStart();
+      try {
+        return await Go()[name](...args);
+      } finally {
+        busyEnd();
+      }
     } catch (e) {
       const err = parseErr(e);
       if (err.kind === "auth" && err.host && logins++ < 5 && await askLogin(err)) continue;
@@ -283,7 +305,8 @@ async function flow(f) {
 async function busy(btn, f) {
   const was = btn.disabled;
   btn.disabled = true;
-  try { return await f(); } catch (e) { report(e); } finally { btn.disabled = was; }
+  btn.setAttribute("aria-busy", "true");
+  try { return await f(); } catch (e) { report(e); } finally { btn.disabled = was; btn.removeAttribute("aria-busy"); }
 }
 
 // ---- Progress (checkout and update) -------------------------------------------------
@@ -312,6 +335,7 @@ async function withProgress(title, f) {
   $("progLog").textContent = "";
   $("progClose").disabled = true;
   $("progCancel").disabled = false;
+  $("progBar").classList.add("on");
   const dlg = $("progDlg");
   dlg.showModal();
   try {
@@ -334,6 +358,7 @@ async function withProgress(title, f) {
   } finally {
     $("progClose").disabled = false;
     $("progCancel").disabled = true;
+    $("progBar").classList.remove("on");
   }
 }
 $("progCancel").onclick = () => Go().Cancel();
@@ -425,6 +450,7 @@ async function openWc(path) {
     state.log = [];
     state.logRev = null;
     state.incoming = false;
+    state.shownPaths = null;
     setIncoming(0);
     setTimeout(checkIncoming, 1500);
     state.locks = [];
@@ -510,6 +536,9 @@ function visibleChanges() {
 
 function renderChanges() {
   const rows = visibleChanges();
+  // Rows that weren't listed last time get a brief highlight (not on the first listing).
+  const before = state.shownPaths;
+  state.shownPaths = new Set(rows.map(c => c.path));
   for (const c of state.changes) {
     if (!state.known.has(c.path)) {
       state.known.add(c.path);
@@ -531,7 +560,8 @@ function renderChanges() {
       if (box.checked) state.checked.add(ch.path); else state.checked.delete(ch.path);
       updateChangeButtons();
     };
-    const tr = el("tr", { class: ch.path === state.diffPath ? "sel" : "", onclick: () => showDiff(ch) },
+    const fresh = before && !before.has(ch.path) ? " fresh" : "";
+    const tr = el("tr", { class: (ch.path === state.diffPath ? "sel" : "") + fresh, onclick: () => showDiff(ch) },
       el("td", {}, box),
       el("td", {}, el("span", { class: "st st-" + si.cls, title: si.label, "aria-hidden": "true" }, si.letter),
         el("span", { class: "sr-only" }, si.label)),
@@ -738,10 +768,18 @@ $("resolveBtn").onclick = () => busy($("resolveBtn"), async () => {
 const INCOMING_EVERY = 5 * 60 * 1000;
 let lastIncomingCheck = 0;
 
+let incomingShown = 0;
 function setIncoming(n) {
-  $("updateBtn").textContent = n ? `Update (${n})` : "Update";
-  $("updateBtn").title = n ? `${n} file${n === 1 ? "" : "s"} changed on the server since your last update: svn update` : "svn update";
-  $("updateBtn").classList.toggle("has-incoming", n > 0);
+  const b = $("updateBtn");
+  const what = `${n} file${n === 1 ? "" : "s"} changed on the server since your last update`;
+  // The badge is made anew only when the count goes up, so it pops in then and not on every check.
+  if (!n) b.replaceChildren("Update");
+  else if (n > incomingShown || !b.querySelector(".badge")) b.replaceChildren("Update", el("span", { class: "badge", "aria-hidden": "true" }, String(n)));
+  else b.querySelector(".badge").textContent = String(n);
+  incomingShown = n;
+  b.title = n ? what + ": svn update" : "svn update";
+  b.setAttribute("aria-label", n ? `Update (${what})` : "Update");
+  b.classList.toggle("has-incoming", n > 0);
 }
 
 // checkIncoming asks the server, in the background, what an update would

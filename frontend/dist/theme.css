@@ -17,6 +17,14 @@
     --panel: #131922;
     --panel-hi: #1c2432;
     --line: #243042;
+    /* Motion: short, and only opacity and small movements. See the Motion section in index.html. */
+    --dur-fast: 120ms;   /* hover, press, small state changes */
+    --dur-base: 160ms;   /* things appearing: dialogs, messages */
+    --dur-exit: 110ms;   /* things going away: quicker than appearing */
+    --dur-flash: 900ms;  /* a colour highlight fading out (new rows) */
+    --ease-out: cubic-bezier(.2, .8, .2, 1);
+    --ease-in: cubic-bezier(.4, 0, 1, 1);
+    --ease-pop: cubic-bezier(.34, 1.56, .64, 1);
     --line-strong: #4a5c78; /* edges that must be seen: fields, checkboxes (3:1 against --bg) */
     --ink: #e2e8f0;
     --ink-dim: #8191a6;
