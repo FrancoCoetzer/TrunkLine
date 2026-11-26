@@ -65,6 +65,12 @@
   .st-unversioned, .st-external, .st-ignored { color: var(--ink-dim); }
   .incoming { color: var(--cyan); }
   .lockmark { margin-left: 8px; font-size: 11px; }
+  #wcBranch { cursor: pointer; background: transparent; }
+  #wcBranch.tag { color: var(--accent); border-color: var(--accent); }
+  #tab-branches tr.current td { background: var(--cyan-tint); }
+  #tab-branches td.kind { color: var(--ink-dim); width: 1%; white-space: nowrap; }
+  #tab-branches td.actions { width: 1%; white-space: nowrap; text-align: right; }
+  #tab-branches td.actions button { margin-left: 4px; }
   /* Locks table: the file name as wide as it needs (up to a limit), the note takes the rest */
   #tab-locks td.path { width: auto; max-width: 45vw; }
   #tab-locks td.msg { width: 100%; }
@@ -184,6 +190,7 @@
     <div id="wcView" class="pane" hidden>
       <div class="bar">
         <span class="title" id="wcName"></span>
+        <button class="chip info" id="wcBranch" title="Branches: switch, or make a new one" hidden></button>
         <span class="url" id="wcUrl"></span>
         <span class="chip" id="wcRev"></span>
         <span class="chip info" id="wcIncoming" hidden></span>
@@ -199,6 +206,7 @@
       <div class="tabs">
         <button data-tab="changes" class="active">Changes</button>
         <button data-tab="history">History</button>
+        <button data-tab="branches" title="Trunk, branches and tags: switch, or make a new one">Branches</button>
         <button data-tab="locks" title="Files that need a lock to edit, and who holds which lock">Locks</button>
       </div>
 
@@ -247,6 +255,24 @@
         <div class="pane">
           <div id="revDetail" class="rev" hidden></div>
           <div class="scroll"><div id="revDiff" class="diff"></div></div>
+        </div>
+      </div>
+
+      <div id="tab-branches" class="pane" hidden>
+        <div class="toolbar">
+          <button class="primary" id="newBranchBtn">New branch…</button>
+          <button id="newTagBtn" title="A snapshot of the code, e.g. for a release">New tag…</button>
+          <button id="switchUrlBtn" title="Switch to any folder of this repository by URL">Switch to URL…</button>
+          <button class="ghost" id="branchesRefreshBtn">Refresh</button>
+          <span style="flex:1"></span>
+          <span class="muted" id="branchesInfo"></span>
+        </div>
+        <div class="scroll">
+          <table class="list">
+            <thead><tr><th></th><th>Name</th><th>Last change</th><th></th></tr></thead>
+            <tbody id="branches"></tbody>
+          </table>
+          <p class="placeholder" id="branchesHelp" hidden></p>
         </div>
       </div>
 
@@ -366,6 +392,28 @@
     <button type="button" id="aboutCheck">Check for updates</button>
     <button value="cancel">Close</button>
   </div>
+</form></dialog>
+
+<dialog id="branchDlg"><form method="dialog">
+  <h3 id="branchTitle">New branch</h3>
+  <p id="branchWhat"></p>
+  <div class="field"><label for="branchName">Name</label>
+    <input id="branchName" placeholder="e.g. imu-rework" maxlength="100" autocomplete="off"></div>
+  <div class="field"><label>Copy from</label>
+    <label style="display:flex;gap:6px;align-items:center"><input type="radio" name="branchFrom" value="head" checked> <span id="branchFromHead"></span></label>
+    <label style="display:flex;gap:6px;align-items:center"><input type="radio" name="branchFrom" value="wc"> <span id="branchFromWc"></span></label>
+  </div>
+  <div class="field"><label for="branchMsg">Commit message</label><input id="branchMsg"></div>
+  <label style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="branchSwitch"> Switch my working copy to it afterwards</label>
+  <p id="branchNote" class="warn-text"></p>
+  <div class="actions"><button value="cancel" formnovalidate>Cancel</button><button class="primary" value="ok" id="branchOk">Create</button></div>
+</form></dialog>
+
+<dialog id="urlDlg"><form method="dialog">
+  <h3>Switch to URL</h3>
+  <p>Any folder of the same repository: a branch, a tag, or an older layout. Your local changes come along.</p>
+  <div class="field"><label for="switchUrl">URL</label><input id="switchUrl"></div>
+  <div class="actions"><button value="cancel" formnovalidate>Cancel</button><button class="primary" value="ok">Switch</button></div>
 </form></dialog>
 
 <dialog id="lockDlg"><form method="dialog">

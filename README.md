@@ -21,6 +21,13 @@ that works the same on both, built with Go and [Wails](https://wails.io/).
   update would bring in without changing anything (`svn status -u`).
 - **History**: the log of the working copy's URL. Click a revision to see its
   message and files, and a file to see what that revision changed in it.
+- **Branches**: the Branches tab lists trunk, branches and tags with their
+  last change, and the header shows which one you're on. Switch between them
+  (your local changes come along; a conflict this causes is pointed out),
+  make a new branch or tag from the latest revision or from your working
+  copy's, and delete one (it stays in the history). A checkout of a subfolder
+  (trunk/src) switches to the same subfolder. Switch to URL covers
+  repositories without the trunk/branches/tags layout.
 - **Locks**: lock a file you can't merge (CAD models, Office documents,
   images) before editing it, so nobody else changes it at the same time. The
   Locks tab lists the files that need a lock (svn:needs-lock, read-only until
@@ -118,7 +125,7 @@ banner. `make dist TAG=v9.9.9` builds the same files locally for testing.
 
 Early days: the everyday workflow (checkout, update, commit, history, browse,
 export, import) works and is tested against real repositories. Not yet there:
-switching branches, merging, side-by-side diffs. Bug reports and pull
+merging, side-by-side diffs. Bug reports and pull
 requests are welcome.
 
 ## License

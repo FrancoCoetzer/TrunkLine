@@ -335,3 +335,151 @@ func TestLockFiles(t *testing.T) {
 		t.Errorf("after breaking: %+v", l["code.c"])
 	}
 }
+
+// layoutApp is testApp with a trunk/branches/tags repository; it returns the
+// app, a checkout of trunk, and the repository root URL.
+func layoutApp(t *testing.T) (*App, string, string) {
+	t.Helper()
+	a, root := testApp(t)
+	info, err := a.Info(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	for _, d := range []string{"trunk", "branches", "tags"} {
+		if err := os.Mkdir(filepath.Join(root, d), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	put(t, filepath.Join(root, "trunk", "src", "main.c"))
+	if _, err := a.Commit(root, "layout", []string{"trunk", "branches", "tags"}, false, false); err != nil {
+		t.Fatal(err)
+	}
+	wc := filepath.Join(t.TempDir(), "trunk-wc")
+	if err := a.svn.Checkout(ctx, svn.Opts{}, info.RepoRoot+"/trunk", wc, nil); err != nil {
+		t.Fatal(err)
+	}
+	return a, wc, info.RepoRoot
+}
+
+func TestBranches(t *testing.T) {
+	a, wc, root := layoutApp(t)
+	ctx := context.Background()
+
+	b, err := a.Branches(wc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b.Layout.Kind != "trunk" || len(b.Branches) != 1 || !b.Branches[0].Current || b.Branches[0].Commit.Revision != 1 {
+		t.Fatalf("fresh repo: %+v", b)
+	}
+
+	// Bad names, unknown kinds and sources are refused before anything happens.
+	for _, c := range [][3]string{{"branch", "a b", "head"}, {"branch", "x/y", "head"}, {"trunk", "x", "head"}, {"branch", "ok", "yesterday"}} {
+		if _, err := a.CreateBranch(wc, c[0], c[1], c[2], ""); err == nil {
+			t.Errorf("CreateBranch%v accepted", c)
+		}
+	}
+
+	// From head and from the working copy's revision.
+	put(t, filepath.Join(wc, "src", "new.c"))
+	if _, err := a.Commit(wc, "new.c", []string{"src/new.c"}, false, false); err != nil {
+		t.Fatal(err) // r2; the working copy root is still at r1
+	}
+	if rev, err := a.CreateBranch(wc, "branch", "from-head", "head", ""); err != nil || rev != 3 {
+		t.Fatalf("branch from head: r%d %v", rev, err)
+	}
+	if _, err := a.CreateBranch(wc, "tag", "v1.0", "wc", "Release 1.0"); err != nil {
+		t.Fatal(err)
+	}
+	ls, _ := a.svn.List(ctx, svn.Opts{}, root+"/branches/from-head/src")
+	if len(ls) != 2 {
+		t.Errorf("branch from head should have new.c: %+v", ls)
+	}
+	ls, _ = a.svn.List(ctx, svn.Opts{}, root+"/tags/v1.0/src")
+	if len(ls) != 1 {
+		t.Errorf("tag from the working copy's r1 shouldn't have new.c: %+v", ls)
+	}
+	log, _ := a.svn.Log(ctx, svn.Opts{}, root+"/tags/v1.0", 0, 1)
+	if len(log) != 1 || log[0].Message != "Release 1.0" {
+		t.Errorf("tag message: %+v", log)
+	}
+
+	// An existing name is refused (svn would copy INTO it).
+	if _, err := a.CreateBranch(wc, "branch", "from-head", "head", ""); err == nil || !strings.Contains(err.Error(), "already exists") {
+		t.Errorf("existing branch: %v", err)
+	}
+
+	b, err = a.Branches(wc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	for _, br := range b.Branches {
+		names = append(names, br.Kind+":"+br.Name)
+	}
+	if strings.Join(names, " ") != "trunk:trunk branch:from-head tag:v1.0" {
+		t.Errorf("branches = %v", names)
+	}
+
+	// A subfolder checkout: Branches offers the same subfolder of each branch.
+	sub := filepath.Join(t.TempDir(), "sub")
+	if err := a.svn.Checkout(ctx, svn.Opts{}, root+"/trunk/src", sub, nil); err != nil {
+		t.Fatal(err)
+	}
+	b, err = a.Branches(sub)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, br := range b.Branches {
+		if !strings.HasSuffix(br.URL, "/src") {
+			t.Errorf("subfolder checkout: %s URL %s", br.Name, br.URL)
+		}
+	}
+	// A branch made from a subfolder checkout still copies the whole trunk.
+	if _, err := a.CreateBranch(sub, "branch", "whole", "head", ""); err != nil {
+		t.Fatal(err)
+	}
+	if ok, _ := a.svn.Exists(ctx, svn.Opts{}, root+"/branches/whole/src/main.c"); !ok {
+		t.Error("branch from a subfolder checkout should hold the whole trunk")
+	}
+
+	// Local changes are counted (they'd come along on a switch).
+	if err := os.WriteFile(filepath.Join(wc, "src", "main.c"), []byte("edited\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := a.Branches(wc); b.Changes != 1 {
+		t.Errorf("changes = %d", b.Changes)
+	}
+
+	// Delete: not the current one, not trunk; a branch goes.
+	if _, err := a.DeleteBranch(wc, "trunk", "trunk", ""); err == nil {
+		t.Error("deleting trunk was allowed")
+	}
+	if err := a.svn.Switch(ctx, svn.Opts{}, wc, root+"/branches/from-head", nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.DeleteBranch(wc, "branch", "from-head", ""); err == nil || !strings.Contains(err.Error(), "Switch to another") {
+		t.Errorf("deleting the current branch: %v", err)
+	}
+	if _, err := a.DeleteBranch(wc, "branch", "whole", ""); err != nil {
+		t.Fatal(err)
+	}
+	if ok, _ := a.svn.Exists(ctx, svn.Opts{}, root+"/branches/whole"); ok {
+		t.Error("deleted branch still there")
+	}
+}
+
+func TestBranchesNoLayout(t *testing.T) {
+	a, wc := testApp(t) // a checkout of the repository root: no trunk/branches/tags
+	b, err := a.Branches(wc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b.Layout.Kind != "" || len(b.Branches) != 0 {
+		t.Errorf("no layout: %+v", b)
+	}
+	if _, err := a.CreateBranch(wc, "branch", "x", "head", ""); err == nil {
+		t.Error("branch without a layout was allowed")
+	}
+}

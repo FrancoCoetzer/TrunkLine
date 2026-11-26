@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	goruntime "runtime"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -1010,4 +1011,178 @@ func (a *App) PickFileIn(wc, title string) (string, error) {
 		return "", &appError{Kind: "other", Message: p + " is not inside this working copy."}
 	}
 	return filepath.ToSlash(r), nil
+}
+
+// --- Branches -------------------------------------------------------------------
+
+// Branch is the trunk, a branch or a tag on the Branches tab.
+type Branch struct {
+	Kind    string     `json:"kind"` // trunk, branch, tag
+	Name    string     `json:"name"`
+	URL     string     `json:"url"`     // what a switch goes to (same subfolder as the working copy)
+	Commit  svn.Commit `json:"commit"`  // its last change
+	Current bool       `json:"current"` // the working copy is on it
+}
+
+// BranchesResult is the Branches tab.
+type BranchesResult struct {
+	Layout   svn.Layout `json:"layout"` // Kind "" when the repository doesn't use trunk/branches/tags
+	URL      string     `json:"url"`    // the working copy's URL
+	Revision int        `json:"revision"`
+	Branches []Branch   `json:"branches"` // trunk first, then branches, then tags
+	Changes  int        `json:"changes"`  // local changes that a switch would carry along
+}
+
+// Branches lists the working copy's project's trunk, branches and tags.
+func (a *App) Branches(wc string) (*BranchesResult, error) {
+	c, err := a.client()
+	if err != nil {
+		return nil, err
+	}
+	host := a.wcHost(wc)
+	o := a.opts(host)
+	info, err := c.Info(a.ctx, o, wc)
+	if err != nil {
+		return nil, a.wrap(err, host)
+	}
+	r := &BranchesResult{Layout: svn.ParseLayout(info.URL), URL: info.URL, Revision: info.Revision, Branches: []Branch{}}
+	changes, _, err := c.Status(a.ctx, o, wc, false)
+	if err != nil {
+		return nil, a.wrap(err, host)
+	}
+	for _, ch := range changes {
+		if ch.Item != "unversioned" && ch.Item != "normal" && ch.Item != "external" || ch.Props == "modified" {
+			r.Changes++
+		}
+	}
+	l := r.Layout
+	if l.Kind == "" {
+		return r, nil
+	}
+	// The project folder: trunk's last change comes from its entry there.
+	top, err := c.List(a.ctx, o, l.Base)
+	if err != nil {
+		return nil, a.wrap(err, host)
+	}
+	add := func(kind, name string, commit svn.Commit) {
+		r.Branches = append(r.Branches, Branch{Kind: kind, Name: name, URL: l.URLOf(kind, name), Commit: commit,
+			Current: kind == l.Kind && name == l.Name})
+	}
+	for _, e := range top {
+		if e.Name == "trunk" && e.Kind == "dir" {
+			add(svn.KindTrunk, "trunk", e.Commit)
+		}
+	}
+	for _, folder := range []struct{ dir, kind string }{{"branches", svn.KindBranch}, {"tags", svn.KindTag}} {
+		if !slices.ContainsFunc(top, func(e svn.Entry) bool { return e.Name == folder.dir && e.Kind == "dir" }) {
+			continue
+		}
+		entries, err := c.List(a.ctx, o, l.Base+"/"+folder.dir)
+		if err != nil {
+			return nil, a.wrap(err, host)
+		}
+		for _, e := range entries {
+			if e.Kind == "dir" {
+				add(folder.kind, e.Name, e.Commit)
+			}
+		}
+	}
+	return r, nil
+}
+
+// CreateBranch copies the whole trunk or branch the working copy is on to a
+// new branch or tag, in one commit, and returns the new revision. from is
+// "head" (the latest on the server) or "wc" (the working copy's revision).
+// The working copy isn't switched (SwitchTo does that).
+func (a *App) CreateBranch(wc, kind, name, from, message string) (int, error) {
+	if kind != svn.KindBranch && kind != svn.KindTag {
+		return 0, &appError{Kind: "other", Message: "Unknown kind " + kind}
+	}
+	if !svn.ValidBranchName(name) {
+		return 0, &appError{Kind: "other", Message: "Use letters, digits, \".\", \"_\" and \"-\" for the name, starting with a letter or digit (no spaces or slashes)."}
+	}
+	c, err := a.client()
+	if err != nil {
+		return 0, err
+	}
+	host := a.wcHost(wc)
+	o := a.opts(host)
+	info, err := c.Info(a.ctx, o, wc)
+	if err != nil {
+		return 0, a.wrap(err, host)
+	}
+	l := svn.ParseLayout(info.URL)
+	if l.Kind == "" {
+		return 0, &appError{Kind: "other", Message: "This working copy isn't in a trunk/branches/tags layout, so TrunkLine doesn't know where branches go."}
+	}
+	whole := svn.Layout{Base: l.Base} // the whole trunk or branch, not just the checked-out subfolder
+	src := whole.URLOf(l.Kind, l.Name)
+	switch from {
+	case "head":
+	case "wc":
+		src += "@" + strconv.Itoa(info.Revision)
+	default:
+		return 0, &appError{Kind: "other", Message: "Unknown source " + from}
+	}
+	dst := whole.URLOf(kind, name)
+	exists, err := c.Exists(a.ctx, o, dst)
+	if err != nil {
+		return 0, a.wrap(err, host)
+	}
+	if exists {
+		return 0, &appError{Kind: "other", Message: fmt.Sprintf("A %s called %q already exists. Pick another name.", kind, name)}
+	}
+	if strings.TrimSpace(message) == "" {
+		message = fmt.Sprintf("Create %s %s from %s", kind, name, l.Name)
+	}
+	rev, err := c.Copy(a.ctx, o, src, dst, message)
+	return rev, a.wrap(err, host)
+}
+
+// SwitchTo moves the working copy to u (a trunk, branch or tag URL from
+// Branches, or any URL in the same repository), keeping local changes.
+func (a *App) SwitchTo(wc, u string) error {
+	c, err := a.client()
+	if err != nil {
+		return err
+	}
+	host := a.wcHost(wc)
+	err = a.longOp(func(ctx context.Context, line func(string)) error {
+		return c.Switch(ctx, a.opts(host), wc, strings.TrimRight(strings.TrimSpace(u), "/"), line)
+	})
+	if err != nil {
+		return a.wrap(err, host)
+	}
+	_, err = a.Info(wc) // saves the new URL
+	return err
+}
+
+// DeleteBranch removes a branch or tag from the repository (it stays in the
+// history). The one the working copy is on can't be deleted.
+func (a *App) DeleteBranch(wc, kind, name, message string) (int, error) {
+	if kind != svn.KindBranch && kind != svn.KindTag {
+		return 0, &appError{Kind: "other", Message: "Only branches and tags can be deleted here."}
+	}
+	c, err := a.client()
+	if err != nil {
+		return 0, err
+	}
+	host := a.wcHost(wc)
+	o := a.opts(host)
+	info, err := c.Info(a.ctx, o, wc)
+	if err != nil {
+		return 0, a.wrap(err, host)
+	}
+	l := svn.ParseLayout(info.URL)
+	if l.Kind == "" {
+		return 0, &appError{Kind: "other", Message: "This working copy isn't in a trunk/branches/tags layout."}
+	}
+	if l.Kind == kind && l.Name == name {
+		return 0, &appError{Kind: "other", Message: "This working copy is on " + name + ". Switch to another branch first."}
+	}
+	if strings.TrimSpace(message) == "" {
+		message = fmt.Sprintf("Delete %s %s", kind, name)
+	}
+	rev, err := c.DeleteURL(a.ctx, o, svn.Layout{Base: l.Base}.URLOf(kind, name), message)
+	return rev, a.wrap(err, host)
 }

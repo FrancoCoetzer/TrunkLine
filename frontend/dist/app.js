@@ -306,6 +306,7 @@ async function openWc(path) {
     state.incoming = false;
     state.locks = [];
     state.lockChecked = new Set();
+    state.branches = null;
     $("commitMsg").value = "";
     $("diff").replaceChildren();
     $("diffTitle").textContent = "Pick a file to see its changes";
@@ -332,6 +333,7 @@ async function refreshWc(remote) {
     if (!state.view || state.view.path !== path) return;
     state.info = info;
     $("wcUrl").textContent = info.relativeUrl || info.url;
+    showBranchChip(info.relativeUrl || "");
     $("wcUrl").title = info.url;
     $("wcRev").textContent = "r" + info.revision;
     state.changes = st.changes;
@@ -549,6 +551,18 @@ $("resolveBtn").onclick = () => busy($("resolveBtn"), async () => {
 
 // ---- Working copy buttons ----------------------------------------------------------------
 
+// conflictsAfter tells the user plainly when an update or switch left
+// conflicts (svn finishes "successfully" either way), and shows them.
+function conflictsAfter(what) {
+  const n = state.changes.filter(c => c.item === "conflicted" || c.props === "conflicted" || c.treeConflict).length;
+  if (!n) return false;
+  $("progDlg").close();
+  setTab("changes");
+  toast(`${what}, but ${n} file${n === 1 ? "" : "s"} now ${n === 1 ? "has a conflict" : "have conflicts"} between your ` +
+    "changes and the incoming ones. They're marked C under Changes: resolve them before committing.", "err");
+  return true;
+}
+
 $("updateBtn").onclick = () => busy($("updateBtn"), async () => {
   const wc = state.view.path;
   try {
@@ -556,6 +570,7 @@ $("updateBtn").onclick = () => busy($("updateBtn"), async () => {
   } finally {
     state.log = [];
     await refreshWc(state.incoming);
+    conflictsAfter("Updated");
   }
 });
 $("checkBtn").onclick = () => busy($("checkBtn"), () => refreshWc(true));
@@ -589,7 +604,7 @@ document.addEventListener("keydown", e => {
 
 // ---- Tabs and history ------------------------------------------------------------------------
 
-const TABS = ["changes", "history", "locks"];
+const TABS = ["changes", "history", "branches", "locks"];
 function currentTab() { const t = store("tab"); return TABS.includes(t) ? t : "changes"; }
 
 function setTab(tab) {
@@ -598,6 +613,7 @@ function setTab(tab) {
   for (const t of TABS) $("tab-" + t).hidden = tab !== t;
   if (tab === "history" && !state.log.length && state.info) loadLog(true);
   if (tab === "locks" && state.view && state.view.type === "wc") loadLocks();
+  if (tab === "branches" && state.view && state.view.type === "wc") loadBranches();
 }
 for (const b of document.querySelectorAll(".tabs button")) b.onclick = () => setTab(b.dataset.tab);
 
@@ -871,6 +887,187 @@ $("importHereBtn").onclick = async () => {
     await reloadLists();
     if (state.view && state.view.type === "browse") listBrowse();
   }
+};
+
+// ---- Branches ----------------------------------------------------------------------------------
+
+// branchOf finds the trunk, branch or tag in a repository-relative URL
+// (^/proj/branches/imu/src): {kind, name} or null. The Go side does the same
+// (svn.ParseLayout); this one only labels the header chip.
+function branchOf(rel) {
+  const segs = rel.replace(/^\^?\/?/, "").split("/");
+  for (let i = 0; i < segs.length; i++) {
+    if (segs[i] === "trunk") return { kind: "trunk", name: "trunk" };
+    if ((segs[i] === "branches" || segs[i] === "tags") && i + 1 < segs.length && segs[i + 1]) {
+      return { kind: segs[i] === "tags" ? "tag" : "branch", name: decodeURIComponent(segs[i + 1]) };
+    }
+  }
+  return null;
+}
+
+function showBranchChip(rel) {
+  const b = branchOf(rel);
+  const chip = $("wcBranch");
+  chip.hidden = !b;
+  if (!b) return;
+  chip.textContent = b.kind === "trunk" ? "trunk" : `${b.kind}: ${b.name}`;
+  chip.classList.toggle("tag", b.kind === "tag");
+  chip.title = b.kind === "tag" ? "On a tag (a snapshot): commits here would change it. Click for branches." : "Branches: switch, or make a new one";
+}
+$("wcBranch").onclick = () => setTab("branches");
+
+state.branches = null;
+
+async function loadBranches() {
+  const wc = state.view.path;
+  $("branchesInfo").textContent = "Asking the server…";
+  try {
+    const b = await call("Branches", wc);
+    if (!state.view || state.view.path !== wc) return;
+    state.branches = b;
+    renderBranches();
+  } catch (e) {
+    $("branchesInfo").textContent = "";
+    report(e);
+  }
+}
+
+function renderBranches() {
+  const b = state.branches;
+  const tb = $("branches");
+  tb.replaceChildren();
+  const layout = b.layout.kind !== "";
+  $("newBranchBtn").disabled = $("newTagBtn").disabled = !layout;
+  $("branchesHelp").hidden = layout;
+  $("branchesHelp").textContent = layout ? "" :
+    "This repository doesn't use the usual trunk / branches / tags folders, so TrunkLine can't list its branches. " +
+    "You can still switch to any folder with Switch to URL.";
+  const kinds = { trunk: "trunk", branch: "branch", tag: "tag" };
+  for (const br of b.branches) {
+    const actions = el("td", { class: "actions" });
+    if (br.current) {
+      actions.append(el("span", { class: "chip info" }, "you are here"));
+    } else {
+      actions.append(el("button", { onclick: () => switchTo(br) }, "Switch"));
+      if (br.kind !== "trunk") actions.append(el("button", { class: "ghost danger", onclick: () => deleteBranch(br) }, "Delete"));
+    }
+    const c = br.commit;
+    tb.append(el("tr", { class: br.current ? "current" : "" },
+      el("td", { class: "kind" }, kinds[br.kind]),
+      el("td", { class: br.kind === "tag" ? "warn-text" : "" }, br.name),
+      el("td", { class: "muted" }, c.revision ? `r${c.revision} by ${c.author || "unknown"}, ${fmtDate(c.date)}` : ""),
+      actions));
+  }
+  const n = k => b.branches.filter(x => x.kind === k).length;
+  $("branchesInfo").textContent = layout
+    ? `${n("branch")} branch${n("branch") === 1 ? "" : "es"} · ${n("tag")} tag${n("tag") === 1 ? "" : "s"}` +
+      (b.layout.rest ? ` · you have ${decodeURIComponent(b.layout.rest)} checked out, so switches keep that folder` : "")
+    : "";
+}
+
+// confirmSwitch warns about what a switch to target ({kind, name}) carries or means.
+async function confirmSwitch(target, changes) {
+  const notes = [];
+  if (changes) notes.push(`Your ${changes} local change${changes === 1 ? "" : "s"} come${changes === 1 ? "s" : ""} along. ` +
+    "Where they clash with what's on " + target.name + ", you'll get conflicts to resolve.");
+  if (target.kind === "tag") notes.push(`${target.name} is a tag: a snapshot, usually of a release. Switch to it to look, build or test; ` +
+    "if you commit while on it, you change the snapshot. Make a branch from it to work on it.");
+  if (!notes.length) return true;
+  return confirmDanger(`Switch to ${target.name}?`, notes.join("\n\n"), "Switch");
+}
+
+async function doSwitch(url, label) {
+  const wc = state.view.path;
+  let ok = false;
+  try {
+    await withProgress("Switching to " + label, () => call("SwitchTo", wc, url));
+    ok = true;
+  } catch (e) {
+    if (parseErr(e).kind !== "canceled") report(e);
+  }
+  state.log = [];
+  await reloadLists();
+  await refreshWc(false);
+  if (ok && !conflictsAfter("Switched to " + label)) {
+    $("progDlg").close();
+    toast("Switched to " + label + ".", "ok");
+  }
+  if (currentTab() === "branches") await loadBranches();
+}
+
+async function switchTo(br) {
+  if (!await confirmSwitch(br, state.branches.changes)) return;
+  await doSwitch(br.url, br.name);
+}
+
+async function deleteBranch(br) {
+  const ok = await confirmDanger(`Delete ${br.kind} ${br.name}?`,
+    `${br.name} disappears from the list, for everyone. It stays in the history (last changed in r${br.commit.revision}), ` +
+    "so it can be brought back. Anyone with a working copy on it should switch away first.", "Delete " + br.kind);
+  if (!ok) return;
+  try {
+    const rev = await call("DeleteBranch", state.view.path, br.kind, br.name, "");
+    toast(`Deleted ${br.kind} ${br.name} (r${rev}).`, "ok");
+  } catch (e) { report(e); }
+  await loadBranches();
+}
+
+async function newBranch(kind) {
+  const b = state.branches;
+  const from = b.branches.find(x => x.current);
+  const fromName = from ? from.name : b.layout.name;
+  $("branchTitle").textContent = kind === "tag" ? "New tag" : "New branch";
+  $("branchWhat").textContent = kind === "tag"
+    ? `A snapshot of ${fromName}, e.g. for a release. Tags aren't meant to change after.`
+    : `A copy of ${fromName} to work on separately. Making it is quick and keeps the history.`;
+  $("branchFromHead").textContent = `the latest on the server`;
+  $("branchFromWc").textContent = `my working copy's revision (r${b.revision})`;
+  document.querySelector('input[name="branchFrom"][value="head"]').checked = true;
+  $("branchName").value = "";
+  $("branchMsg").value = "";
+  $("branchSwitch").checked = kind === "branch";
+  $("branchOk").textContent = kind === "tag" ? "Create tag" : "Create branch";
+  const note = () => {
+    $("branchNote").textContent = $("branchSwitch").checked && b.changes
+      ? `Your ${b.changes} local change${b.changes === 1 ? "" : "s"} will come along to the new ${kind} (not committed to it).` : "";
+  };
+  $("branchSwitch").onchange = note;
+  note();
+  const r = ask($("branchDlg"));
+  $("branchName").focus();
+  if (await r !== "ok") return;
+  const name = $("branchName").value.trim();
+  const fromWhere = document.querySelector('input[name="branchFrom"]:checked').value;
+  let rev;
+  try {
+    rev = await call("CreateBranch", state.view.path, kind, name, fromWhere, $("branchMsg").value.trim());
+  } catch (e) { return report(e); }
+  toast(`Created ${kind} ${name} (r${rev}).`, "ok");
+  if ($("branchSwitch").checked) {
+    await loadBranches();
+    const nb = state.branches.branches.find(x => x.kind === kind && x.name === name);
+    if (nb) {
+      if (kind === "tag" && !await confirmSwitch(nb, 0)) return;
+      await doSwitch(nb.url, name);
+      return;
+    }
+  }
+  await loadBranches();
+}
+
+$("newBranchBtn").onclick = () => state.branches && newBranch("branch");
+$("newTagBtn").onclick = () => state.branches && newBranch("tag");
+$("branchesRefreshBtn").onclick = () => busy($("branchesRefreshBtn"), loadBranches);
+$("switchUrlBtn").onclick = async () => {
+  $("switchUrl").value = state.branches ? state.branches.url : (state.info ? state.info.url : "");
+  const r = ask($("urlDlg"));
+  $("switchUrl").select();
+  if (await r !== "ok") return;
+  const url = $("switchUrl").value.trim();
+  if (!url) return;
+  const target = { kind: "other", name: url, ...(branchOf(url.replace(/^[a-z+]+:\/\/[^/]*/, "")) || {}) };
+  if (!await confirmSwitch(target, state.branches ? state.branches.changes : 0)) return;
+  await doSwitch(url, target.name);
 };
 
 // ---- Locks -------------------------------------------------------------------------------------
