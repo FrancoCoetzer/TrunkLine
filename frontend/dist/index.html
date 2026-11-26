@@ -241,14 +241,19 @@
         </div>
         <div class="pane">
           <div class="toolbar"><span id="diffTitle" class="muted">Pick a file to see its changes</span>
-            <span style="flex:1"></span><button class="ghost" id="blameFileBtn" hidden title="Who last changed each line">Blame</button><button class="ghost" id="openFileBtn" hidden>Open file</button></div>
+            <span style="flex:1"></span><button class="ghost" id="historyFileBtn" hidden title="The commits that changed this file">History</button><button class="ghost" id="blameFileBtn" hidden title="Who last changed each line">Blame</button><button class="ghost" id="openFileBtn" hidden>Open file</button></div>
           <div class="scroll"><div id="diff" class="diff"></div></div>
         </div>
       </div>
 
       <div id="tab-history" class="split" hidden>
         <div class="pane">
-          <div class="toolbar"><span class="muted">Newest first</span></div>
+          <div class="toolbar">
+            <input type="search" id="logSearch" placeholder="Search messages, authors, paths (Enter)" style="flex:1;min-width:12em">
+            <span class="chip info" id="logFile" hidden></span>
+          </div>
+          <div class="toolbar" id="logStatus" hidden><span class="muted" id="logStatusText"></span>
+            <span style="flex:1"></span><button class="ghost" id="logShowAll">Show all history</button></div>
           <div class="scroll"><table class="list"><tbody id="log"></tbody></table>
             <div style="padding:8px"><button id="moreLog" hidden>Load more</button></div></div>
         </div>
@@ -428,6 +433,7 @@
   <div class="head">
     <h3 id="blameTitle"></h3><span style="flex:1"></span>
     <span class="muted" id="blameStats"></span>
+    <button type="button" id="blameHistoryBtn" hidden title="The commits that changed this file">History</button>
     <button value="cancel">Close</button>
   </div>
   <div id="blameCommit">Click a revision on the left to see its commit message. Brighter bars are newer changes.</div>

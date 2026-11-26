@@ -219,7 +219,27 @@ type ChangedPath struct {
 // Log lists up to limit revisions of target (a working copy path or a URL),
 // newest first, starting at revision from (0 for HEAD) and going back.
 func (c *Client) Log(ctx context.Context, o Opts, target string, from, limit int) ([]LogEntry, error) {
-	args := []string{"log", "--xml", "-v", "-l", strconv.Itoa(limit)}
+	return c.LogSearch(ctx, o, target, from, limit, "")
+}
+
+// MaxSearchResults caps a search's results (a search reads all of history).
+const MaxSearchResults = 500
+
+// LogSearch is Log, keeping only the revisions whose message, author, date
+// or changed paths contain search (case-insensitive). svn's --search matches
+// a glob against the whole field, and --limit would limit the revisions
+// searched rather than the results, so: plain text is wrapped as *text*
+// (with glob characters escaped), text with * or ? is used as the glob it
+// is, all of history is searched, and the results are capped at limit (at
+// most MaxSearchResults).
+func (c *Client) LogSearch(ctx context.Context, o Opts, target string, from, limit int, search string) ([]LogEntry, error) {
+	args := []string{"log", "--xml", "-v"}
+	if search == "" {
+		args = append(args, "-l", strconv.Itoa(limit))
+	} else {
+		args = append(args, "--search", searchGlob(search))
+		limit = min(limit, MaxSearchResults)
+	}
 	if from > 0 {
 		args = append(args, "-r", strconv.Itoa(from)+":1")
 	} else {
@@ -255,6 +275,9 @@ func (c *Client) Log(ctx context.Context, o Opts, target string, from, limit int
 		}
 		slices.SortFunc(le.Paths, func(a, b ChangedPath) int { return strings.Compare(a.Path, b.Path) })
 		entries = append(entries, le)
+		if len(entries) == limit {
+			break
+		}
 	}
 	return entries, nil
 }
@@ -457,4 +480,14 @@ func committedRevision(out string) int {
 	s = s[:strings.IndexFunc(s+".", func(r rune) bool { return r < '0' || r > '9' })]
 	n, _ := strconv.Atoi(s)
 	return n
+}
+
+// searchGlob turns what the user typed into an svn --search pattern.
+func searchGlob(s string) string {
+	s = strings.TrimSpace(s)
+	if strings.ContainsAny(s, "*?") {
+		return s
+	}
+	r := strings.NewReplacer(`\`, `\\`, `[`, `\[`, `]`, `\]`)
+	return "*" + r.Replace(s) + "*"
 }

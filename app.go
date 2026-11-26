@@ -354,7 +354,9 @@ func newFileDiff(path, rel string) (string, error) {
 
 // Log lists revisions of a working copy or URL, newest first, from revision
 // from (0 for the newest) back.
-func (a *App) Log(target string, from, limit int) ([]svn.LogEntry, error) {
+// search, when not "", keeps only revisions whose message, author or changed
+// paths contain it (see svn.LogSearch).
+func (a *App) Log(target string, from, limit int, search string) ([]svn.LogEntry, error) {
 	c, err := a.client()
 	if err != nil {
 		return nil, err
@@ -363,7 +365,10 @@ func (a *App) Log(target string, from, limit int) ([]svn.LogEntry, error) {
 	if host == "" {
 		host = a.wcHost(target)
 	}
-	entries, err := c.Log(a.ctx, a.opts(host), target, from, limit)
+	entries, err := c.LogSearch(a.ctx, a.opts(host), target, from, limit, search)
+	if entries == nil {
+		entries = []svn.LogEntry{}
+	}
 	return entries, a.wrap(err, host)
 }
 

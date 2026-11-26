@@ -2,6 +2,7 @@ package svn
 
 import (
 	"context"
+	"fmt"
 	"net/url"
 	"os"
 	"os/exec"
@@ -283,5 +284,57 @@ func TestExportImport(t *testing.T) {
 	}
 	if b, _ := os.ReadFile(filepath.Join(out, "build.o")); string(b) != "junk" {
 		t.Error("checkout in place touched an unversioned file")
+	}
+}
+
+func TestLogSearch(t *testing.T) {
+	c, root, wc := newRepo(t)
+	ctx := context.Background()
+	f := filepath.Join(wc, "ctrl [v2].c")
+	write(t, f, "1\n")
+	if err := c.Add(ctx, Opts{}, f); err != nil {
+		t.Fatal(err)
+	}
+	msgs := []string{"Add the motor driver", "Fix IMU drift", "motor: stop on fault", "Docs"}
+	for i, m := range msgs {
+		write(t, f, strings.Repeat("x", i+2)+"\n")
+		if _, err := c.Commit(ctx, Opts{}, m, []string{f}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	revs := func(es []LogEntry) []int {
+		var r []int
+		for _, e := range es {
+			r = append(r, e.Revision)
+		}
+		return r
+	}
+	search := func(q string, limit int) []int {
+		t.Helper()
+		es, err := c.LogSearch(ctx, Opts{}, root, 0, limit, q)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return revs(es)
+	}
+	// r2..r5 are the four commits; r1 made the layout.
+	for q, want := range map[string]string{
+		"motor":       "[4 2]", // in the message, any case, anywhere in it
+		"MOTOR":       "[4 2]",
+		"imu":         "[3]",
+		"ctrl [v2].c": "[5 4 3 2]", // a changed path, with glob characters taken literally
+		"Fix*drift":   "[3]",       // the user's own glob
+		"nothing":     "[]",
+	} {
+		if got := fmt.Sprint(search(q, 100)); got != want {
+			t.Errorf("search %q = %s, want %s", q, got, want)
+		}
+	}
+	// The limit caps results, not the revisions searched: the oldest match is still found.
+	if got := fmt.Sprint(search("motor", 1)); got != "[4]" {
+		t.Errorf("search with limit 1 = %s", got)
+	}
+	if got := fmt.Sprint(search("add the", 100)); got != "[2]" {
+		t.Errorf("search for old r2 = %s", got)
 	}
 }

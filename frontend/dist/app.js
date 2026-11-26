@@ -312,6 +312,10 @@ async function openWc(path) {
     $("diffTitle").textContent = "Pick a file to see its changes";
     $("openFileBtn").hidden = true;
     $("blameFileBtn").hidden = true;
+    $("historyFileBtn").hidden = true;
+    state.historyFile = null;
+    state.logSearch = "";
+    $("logSearch").value = "";
   }
   state.view = { type: "wc", path };
   store("last", JSON.stringify(state.view));
@@ -472,6 +476,7 @@ async function showDiff(ch) {
   $("openFileBtn").hidden = false;
   // only files that are in the repository have a history to blame
   $("blameFileBtn").hidden = ch.isDir || ["unversioned", "added", "replaced", "missing"].includes(ch.item);
+  $("historyFileBtn").hidden = ["unversioned", "added", "replaced"].includes(ch.item);
   const path = state.view.path;
   $("diff").replaceChildren(el("div", { class: "placeholder" }, "Loading…"));
   try {
@@ -619,20 +624,68 @@ for (const b of document.querySelectorAll(".tabs button")) b.onclick = () => set
 
 const LOG_PAGE = 100;
 
+// What the History tab shows: the working copy's history, or one file's
+// (historyFile: {url, label}), optionally filtered by a search.
+state.historyFile = null;
+state.logSearch = "";
+const SEARCH_LIMIT = 500;
+
+function logTarget() { return state.historyFile ? state.historyFile.url : state.info.url; }
+
 async function loadLog(fresh) {
   if (!state.info) return;
-  const url = state.info.url;
+  const url = logTarget(), search = state.logSearch;
   const from = fresh || !state.log.length ? 0 : state.log[state.log.length - 1].revision - 1;
   if (!fresh && from < 1) return;
+  showLogStatus(search ? "Searching all of the history…" : "");
   try {
-    const entries = await call("Log", url, from, LOG_PAGE);
-    if (!state.info || state.info.url !== url) return;
+    const entries = await call("Log", url, from, search ? SEARCH_LIMIT : LOG_PAGE, search);
+    if (!state.info || logTarget() !== url || state.logSearch !== search) return;
     state.log = fresh ? entries : state.log.concat(entries);
+    if (fresh) { state.logRev = null; $("revDetail").hidden = true; $("revDiff").replaceChildren(); }
     renderLog();
-    $("moreLog").hidden = entries.length < LOG_PAGE;
-  } catch (e) { report(e); }
+    $("moreLog").hidden = search ? true : entries.length < LOG_PAGE;
+    showLogStatus(search ? (entries.length >= SEARCH_LIMIT ? `The newest ${SEARCH_LIMIT} matches for "${search}"`
+      : `${entries.length} match${entries.length === 1 ? "" : "es"} for "${search}"`) : "");
+  } catch (e) { showLogStatus(""); report(e); }
 }
 $("moreLog").onclick = () => loadLog(false);
+
+function showLogStatus(text) {
+  const filtered = !!(state.historyFile || state.logSearch);
+  $("logFile").hidden = !state.historyFile;
+  if (state.historyFile) $("logFile").textContent = "History of " + state.historyFile.label;
+  $("logStatus").hidden = !text && !filtered;
+  $("logStatusText").textContent = text;
+  $("logShowAll").hidden = !filtered;
+}
+
+$("logSearch").addEventListener("keydown", e => {
+  if (e.key !== "Enter") return;
+  state.logSearch = $("logSearch").value.trim();
+  state.log = [];
+  loadLog(true);
+});
+$("logSearch").addEventListener("search", () => { // the clear (x) button
+  if ($("logSearch").value === "" && state.logSearch) { state.logSearch = ""; state.log = []; loadLog(true); }
+});
+$("logShowAll").onclick = () => {
+  state.historyFile = null;
+  state.logSearch = "";
+  $("logSearch").value = "";
+  state.log = [];
+  loadLog(true);
+};
+
+// showFileHistory opens the History tab on one working copy file.
+function showFileHistory(rel) {
+  state.historyFile = { url: state.info.url.replace(/\/+$/, "") + "/" + encodePath(rel), label: rel };
+  state.logSearch = "";
+  $("logSearch").value = "";
+  state.log = [];
+  setTab("history");
+  loadLog(true);
+}
 
 function renderLog() {
   const tb = $("log");
@@ -1259,8 +1312,11 @@ let blame = null; // the result on show
 // openBlame shows the blame view for what load returns (BlameFile/BlameURL);
 // note, if given, is shown above the lines.
 let blameNote = "";
-async function openBlame(load, note = "") {
+let blameRel = null; // the working copy file being blamed, for its History button
+async function openBlame(load, note = "", rel = null) {
   blameNote = note;
+  blameRel = rel;
+  $("blameHistoryBtn").hidden = !rel;
   const dlg = $("blameDlg");
   $("blameTitle").textContent = "Blame";
   $("blameStats").textContent = "";
@@ -1324,7 +1380,7 @@ async function showBlameRevision(rev) {
   for (const tr of $("blameBody").querySelectorAll("tr")) tr.classList.toggle("hl", tr.dataset.rev === String(rev));
   $("blameCommit").textContent = `r${rev}: loading…`;
   try {
-    const [e] = await call("Log", blame.repoRoot, rev, 1);
+    const [e] = await call("Log", blame.repoRoot, rev, 1, "");
     if (!e) throw { message: `r${rev} not found` };
     $("blameCommit").replaceChildren(
       el("b", {}, `r${e.revision}`), `  ${e.author || ""}  ${fmtDate(e.date)}  ·  ${e.paths.length} path${e.paths.length === 1 ? "" : "s"} changed\n`,
@@ -1334,11 +1390,21 @@ async function showBlameRevision(rev) {
   }
 }
 
+$("blameHistoryBtn").onclick = () => {
+  if (!blameRel) return;
+  $("blameDlg").close();
+  showFileHistory(blameRel);
+};
+
+$("historyFileBtn").onclick = () => {
+  if (state.view && state.view.type === "wc" && state.diffPath && state.info) showFileHistory(state.diffPath);
+};
+
 $("blameFileBtn").onclick = () => {
   if (state.view && state.view.type === "wc" && state.diffPath) {
     const ch = state.changes.find(c => c.path === state.diffPath);
     openBlame(() => call("BlameFile", state.view.path, state.diffPath),
-      ch && localChange(ch) ? "Lines marked \"not committed\" are your local changes." : "");
+      ch && localChange(ch) ? "Lines marked \"not committed\" are your local changes." : "", state.diffPath);
   }
 };
 
