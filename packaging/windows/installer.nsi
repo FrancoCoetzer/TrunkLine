@@ -1,5 +1,5 @@
 ; TrunkLine's Windows setup. Built by make dist:
-;   makensis -DVERSION=X.Y.Z -DAPPEXE=<trunkline.exe> -DLICENSEFILE=<LICENSE> -DOUTFILE=<setup.exe> installer.nsi
+;   makensis -DVERSION=X.Y.Z -DAPPEXE=<trunkline.exe> -DLICENSEFILE=<LICENSE> -DICONFILE=<trunkline.ico> -DOUTFILE=<setup.exe> installer.nsi
 ; Installs per user (no admin prompt) into %LOCALAPPDATA%\Programs\TrunkLine.
 ; Run with /S (as the app's updater does) it installs silently, then starts
 ; the new version.
@@ -22,6 +22,8 @@ VIAddVersionKey "ProductVersion" "${VERSION}"
 VIAddVersionKey "FileDescription" "TrunkLine SVN client setup"
 VIAddVersionKey "LegalCopyright" "Franco Coetzer, GNU GPL v3"
 
+!define MUI_ICON "${ICONFILE}"
+!define MUI_UNICON "${ICONFILE}"
 !define MUI_FINISHPAGE_RUN "$INSTDIR\trunkline.exe"
 !define MUI_FINISHPAGE_RUN_TEXT "Start TrunkLine"
 !insertmacro MUI_PAGE_LICENSE "${LICENSEFILE}"

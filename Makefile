@@ -11,7 +11,7 @@ LINUX_TAGS := $(APP_TAGS),webkit2_41
 # STAMP(version, install kind): what the updater knows about this build.
 STAMP       = -X trunkline/internal/update.Version=$(1) -X trunkline/internal/update.Install=$(2)
 
-.PHONY: all app run dev windows test vet install-desktop dist release clean
+.PHONY: all app run dev windows winres test vet install-desktop dist release clean
 
 all: test app
 
@@ -30,6 +30,12 @@ dev:
 # Windows needs no cgo, so it cross-builds from Linux.
 windows:
 	GOOS=windows GOARCH=amd64 go build -tags $(APP_TAGS) -ldflags "-s -w -H windowsgui $(call STAMP,$(VERSION),source)" -o build/bin/trunkline.exe .
+
+# The Windows icon: rsrc_windows_amd64.syso (linked into the .exe) and
+# packaging/windows/trunkline.ico (the installer's), both committed, drawn by
+# a script that mirrors packaging/trunkline.svg. Needs Python 3 and Pillow.
+winres:
+	python3 packaging/windows/make_icon.py
 
 test:
 	go test ./...
@@ -61,6 +67,7 @@ dist: test
 	echo "== $$tag: Windows"; \
 	GOOS=windows GOARCH=amd64 go build -tags $(APP_TAGS) -ldflags "-s -w -H windowsgui $(call STAMP,$$tag,windows)" -o build/stage/trunkline.exe .; \
 	makensis -V2 -DVERSION=$$v -DAPPEXE=$(CURDIR)/build/stage/trunkline.exe -DLICENSEFILE=$(CURDIR)/LICENSE \
+		-DICONFILE=$(CURDIR)/packaging/windows/trunkline.ico \
 		-DOUTFILE=$(CURDIR)/build/dist/trunkline-$$v-setup.exe packaging/windows/installer.nsi; \
 	cd build/dist && sha256sum -- * > SHA256SUMS && ls -l
 

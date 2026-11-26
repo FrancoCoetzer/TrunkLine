@@ -109,6 +109,7 @@ make test       # go test ./... (needs svn and svnadmin: the tests use a real re
 make vet        # Linux and Windows
 make dev        # debug build: Inspect in the window, and served on http://localhost:34115
 make install-desktop   # a "TrunkLine (dev)" launcher in the app menu
+make winres     # redraw the Windows icon files (after changing packaging/trunkline.svg; needs Pillow)
 ```
 
 The frontend has no build step: edit `frontend/dist` and rebuild.

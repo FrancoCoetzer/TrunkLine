@@ -45,6 +45,11 @@ rebuild after editing `frontend/dist`.
   dialog's cancel, not the `close` event (a webview that isn't painting can
   hold that back). Keep it that way.
 - This is a public repo: no company names, internal hostnames or paths.
+- **The Windows icon** is `rsrc_windows_amd64.syso` (linked into the .exe; Wails
+  loads icon group 3) and `packaging/windows/trunkline.ico` (the installer's),
+  both committed and drawn by `packaging/windows/make_icon.py`, which mirrors
+  the geometry of `packaging/trunkline.svg`. Change the SVG and the script
+  together, then `make winres`.
 
 - **Updates** (`internal/update`): releases come from GitHub (`update.Repo`).
   An update is only installed after its SHA-256 matches the release's
