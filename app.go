@@ -1233,20 +1233,21 @@ func (a *App) UndoRevision(wc string, rev int) error {
 // recursive, which also covers the folders below). byExt ignores every file
 // with the same extension ("*.log") instead of the exact names. The folder's
 // property change is a local change, committed like any other so everyone
-// gets the same ignores. It returns the number of patterns added.
-func (a *App) Ignore(wc string, rel []string, byExt, recursive bool) (int, error) {
+// gets the same ignores. It returns the folders whose ignore list changed
+// (relative to wc, "." for the top), to commit.
+func (a *App) Ignore(wc string, rel []string, byExt, recursive bool) ([]string, error) {
 	c, err := a.client()
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
 	if len(rel) == 0 {
-		return 0, &appError{Kind: "other", Message: "Pick the files or folders to ignore."}
+		return nil, &appError{Kind: "other", Message: "Pick the files or folders to ignore."}
 	}
 	host := a.wcHost(wc)
 	o := a.opts(host)
 	changes, _, err := c.Status(a.ctx, o, wc, false)
 	if err != nil {
-		return 0, a.wrap(err, host)
+		return nil, a.wrap(err, host)
 	}
 	item := map[string]string{}
 	for _, ch := range changes {
@@ -1257,9 +1258,9 @@ func (a *App) Ignore(wc string, rel []string, byExt, recursive bool) (int, error
 	for _, r := range rel {
 		switch it, listed := item[r]; {
 		case !listed:
-			return 0, &appError{Kind: "other", Message: r + " isn't listed as a new file: it may be ignored already (svn ignores some, like *.o, by default)."}
+			return nil, &appError{Kind: "other", Message: r + " isn't listed as a new file: it may be ignored already (svn ignores some, like *.o, by default)."}
 		case it != "unversioned":
-			return 0, &appError{Kind: "other", Message: r + " is already in the repository: ignoring only hides files that aren't. " +
+			return nil, &appError{Kind: "other", Message: r + " is already in the repository: ignoring only hides files that aren't. " +
 				"To stop tracking it, delete it from svn first."}
 		}
 		name := path.Base(r)
@@ -1267,28 +1268,64 @@ func (a *App) Ignore(wc string, rel []string, byExt, recursive bool) (int, error
 		if byExt {
 			ext := path.Ext(name)
 			if ext == "" || ext == name {
-				return 0, &appError{Kind: "other", Message: name + " has no extension to ignore by."}
+				return nil, &appError{Kind: "other", Message: name + " has no extension to ignore by."}
 			}
 			pattern = "*" + ext
 		} else if strings.ContainsAny(name, "*?[]") {
-			return 0, &appError{Kind: "other", Message: name + " has characters (* ? [ ]) that svn reads as a pattern: ignore by extension, or edit svn:ignore by hand."}
+			return nil, &appError{Kind: "other", Message: name + " has characters (* ? [ ]) that svn reads as a pattern: ignore by extension, or edit svn:ignore by hand."}
 		}
-		rule := rule{dir: filepath.Join(wc, filepath.FromSlash(path.Dir(r))), pattern: pattern}
+		rule := rule{dir: path.Dir(r), pattern: pattern}
 		if !slices.Contains(rules, rule) {
 			rules = append(rules, rule)
 		}
 	}
-	added := 0
-	for _, r := range rules {
-		ok, err := c.AddIgnore(a.ctx, o, r.dir, r.pattern, recursive)
-		if err != nil {
-			return added, a.wrap(err, host)
+	if recursive {
+		// A rule that covers subfolders makes the same rule below it redundant:
+		// keep one per pattern, on the folder that contains all the others.
+		byPattern := map[string]string{}
+		var order []string
+		for _, r := range rules {
+			d, ok := byPattern[r.pattern]
+			if !ok {
+				order = append(order, r.pattern)
+				byPattern[r.pattern] = r.dir
+				continue
+			}
+			byPattern[r.pattern] = commonDir(d, r.dir)
 		}
-		if ok {
-			added++
+		rules = rules[:0]
+		for _, p := range order {
+			rules = append(rules, rule{dir: byPattern[p], pattern: p})
 		}
 	}
-	return added, nil
+	var folders []string
+	for _, r := range rules {
+		ok, err := c.AddIgnore(a.ctx, o, filepath.Join(wc, filepath.FromSlash(r.dir)), r.pattern, recursive)
+		if err != nil {
+			return folders, a.wrap(err, host)
+		}
+		if ok && !slices.Contains(folders, r.dir) {
+			folders = append(folders, r.dir)
+		}
+	}
+	if folders == nil {
+		folders = []string{}
+	}
+	return folders, nil
+}
+
+// commonDir is the deepest folder containing both a and b (paths relative to
+// the working copy, with /, "." for the top).
+func commonDir(a, b string) string {
+	as, bs := strings.Split(a, "/"), strings.Split(b, "/")
+	var common []string
+	for i := 0; i < len(as) && i < len(bs) && as[i] == bs[i]; i++ {
+		common = append(common, as[i])
+	}
+	if len(common) == 0 {
+		return "."
+	}
+	return strings.Join(common, "/")
 }
 
 // --- Relocate ---------------------------------------------------------------------
@@ -1318,10 +1355,9 @@ func (a *App) Relocate(wc, newRoot string) (string, error) {
 	}
 	newHost := hostOf(newRoot)
 	if err := c.Relocate(a.ctx, a.opts(newHost), oldRoot, newRoot, wc); err != nil {
-		var e *svn.Error
-		if errors.As(err, &e) && strings.Contains(e.Msg, "UUID") {
+		if svn.IsOtherRepository(err) {
 			return "", &appError{Kind: "other", Message: "The repository at " + newRoot + " isn't the same repository " +
-				"(svn compares their IDs), so the working copy can't move there. Check the address.\n\n" + e.Msg}
+				"(svn compares their IDs), so the working copy can't move there. Check the address.\n\n" + err.Error()}
 		}
 		return "", a.wrap(err, newHost)
 	}

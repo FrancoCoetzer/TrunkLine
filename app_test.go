@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"net/url"
 	"os"
 	"os/exec"
@@ -521,11 +522,11 @@ func TestIgnoreFromChanges(t *testing.T) {
 		t.Errorf("ignoring an already-ignored file: %v", err)
 	}
 	// *.tmp in src (both files: one pattern), and build by name.
-	if n, err := a.Ignore(wc, []string{"src/main.tmp", "src/util.tmp"}, true, false); n != 1 || err != nil {
-		t.Fatalf("ignore *.tmp: %d %v", n, err)
+	if f, err := a.Ignore(wc, []string{"src/main.tmp", "src/util.tmp"}, true, false); fmt.Sprint(f) != "[src]" || err != nil {
+		t.Fatalf("ignore *.tmp: %v %v", f, err)
 	}
-	if n, err := a.Ignore(wc, []string{"build"}, false, false); n != 1 || err != nil {
-		t.Fatalf("ignore build: %d %v", n, err)
+	if f, err := a.Ignore(wc, []string{"build"}, false, false); fmt.Sprint(f) != "[.]" || err != nil {
+		t.Fatalf("ignore build: %v %v", f, err)
 	}
 	st := status(t, a, wc)
 	if len(st) != 3 || st["notes"] != "unversioned" || st["src"] != "normal" || st["."] != "normal" {
@@ -564,6 +565,13 @@ func TestRelocateApp(t *testing.T) {
 		if _, err := a.Relocate(wc, bad); err == nil {
 			t.Errorf("Relocate(%q) accepted", bad)
 		}
+	}
+	other := filepath.Join(t.TempDir(), "other")
+	if out, err := exec.Command("svnadmin", "create", other).CombinedOutput(); err != nil {
+		t.Fatalf("%v %s", err, out)
+	}
+	if _, err := a.Relocate(wc, "file://"+filepath.ToSlash(other)); err == nil || !strings.Contains(err.Error(), "isn't the same repository") {
+		t.Errorf("relocating to another repository: %v", err)
 	}
 	got, err := a.Relocate(wc, newRoot+"/")
 	if err != nil || got != newRoot {
@@ -614,5 +622,33 @@ func TestIncoming(t *testing.T) {
 	}
 	if n, _ := a.Incoming(wc); n != 0 {
 		t.Errorf("after updating: %d", n)
+	}
+}
+
+func TestIgnoreRecursiveOnce(t *testing.T) {
+	a, wc := testApp(t)
+	put(t, filepath.Join(wc, "src", "deep", "keep.c"))
+	if _, err := a.Commit(wc, "src", []string{"src"}, false, false); err != nil {
+		t.Fatal(err)
+	}
+	put(t, filepath.Join(wc, "a.tmp"))
+	put(t, filepath.Join(wc, "src", "b.tmp"))
+	put(t, filepath.Join(wc, "src", "deep", "c.tmp"))
+	// One rule on the top folder covers all three; no copies below it.
+	f, err := a.Ignore(wc, []string{"a.tmp", "src/b.tmp", "src/deep/c.tmp"}, true, true)
+	if err != nil || fmt.Sprint(f) != "[.]" {
+		t.Fatalf("folders = %v, %v", f, err)
+	}
+	if st := status(t, a, wc); len(st) != 1 || st["."] != "normal" {
+		t.Errorf("status = %v", st)
+	}
+	// Files in src and src/deep: one rule, on src (the folder holding both).
+	put(t, filepath.Join(wc, "src", "x.bak"))
+	put(t, filepath.Join(wc, "src", "deep", "y.bak"))
+	if f, err := a.Ignore(wc, []string{"src/x.bak", "src/deep/y.bak"}, true, true); err != nil || fmt.Sprint(f) != "[src]" {
+		t.Errorf("folders = %v, %v", f, err)
+	}
+	if commonDir("src/a", "src/b") != "src" || commonDir("a", "b") != "." || commonDir(".", "src") != "." || commonDir("src/x", "src/x") != "src/x" {
+		t.Error("commonDir")
 	}
 }

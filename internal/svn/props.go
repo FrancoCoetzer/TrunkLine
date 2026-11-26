@@ -82,3 +82,10 @@ func (c *Client) Relocate(ctx context.Context, o Opts, from, to, wc string) erro
 	_, err := c.run(ctx, o, nil, "relocate", "--", from, to, wc)
 	return err
 }
+
+// IsOtherRepository says whether err is svn refusing a relocate because the
+// repository at the new address is a different one (E195009, a UUID mismatch).
+func IsOtherRepository(err error) bool {
+	var e *Error
+	return errors.As(err, &e) && e.has([]string{"E195009"})
+}

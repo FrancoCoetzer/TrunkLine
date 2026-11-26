@@ -563,10 +563,15 @@ $("ignoreBtn").onclick = async () => {
   if (await ask($("ignoreDlg")) !== "ok") return;
   const byExt = document.querySelector('input[name="ignoreBy"]:checked').value === "ext";
   await busy($("ignoreBtn"), async () => {
-    await call("Ignore", state.view.path, sel.map(c => c.path), byExt, $("ignoreRecursive").checked);
+    const folders = await call("Ignore", state.view.path, sel.map(c => c.path), byExt, $("ignoreRecursive").checked);
     for (const c of sel) state.checked.delete(c.path);
+    // Tick the folders whose ignore list changed, ready to commit.
+    for (const f of folders) { state.checked.add(f); state.known.add(f); }
     await refreshWc(false);
-    toast("Ignored. The folder's ignore list changed: commit it (it's ticked) so everyone gets it.", "ok");
+    const names = folders.map(f => f === "." ? "the top folder" : f + "/").join(", ");
+    toast(folders.length
+      ? `Ignored. The ignore list of ${names} changed: it's ticked, so commit it and everyone gets the same ignores.`
+      : "Those were already ignored.", "ok");
   });
 };
 

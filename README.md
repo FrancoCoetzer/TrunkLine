@@ -17,17 +17,26 @@ that works the same on both, built with Go and [Wails](https://wails.io/).
   add and resolve conflicts (keep mine, take theirs, or mark your edited file
   resolved). A file that still has conflict markers (`<<<<<<<`) in it can't be
   marked resolved or committed by accident.
-- **Update**, with svn's output shown as it runs. **Check server** shows what an
+- **Ignore** new files you never want to commit (build output, logs) from the
+  Changes list, by name or by extension, in one folder or its subfolders too.
+- **Update**, with svn's output shown as it runs. The Update button shows how
+  many files changed on the server (checked in the background), and a
+  conflict an update causes is pointed out. **Check server** shows what an
   update would bring in without changing anything (`svn status -u`).
-- **History**: the log of the working copy's URL. Click a revision to see its
-  message and files, and a file to see what that revision changed in it.
+- **History**: the log of the working copy's URL, or of one file (History,
+  next to Blame). Search it by message, author or changed path. Click a
+  revision to see its message and files, and a file to see what that revision
+  changed in it. **Undo this commit** takes a revision's changes back out, as
+  local changes to check and commit.
 - **Branches**: the Branches tab lists trunk, branches and tags with their
   last change, and the header shows which one you're on. Switch between them
   (your local changes come along; a conflict this causes is pointed out),
   make a new branch or tag from the latest revision or from your working
   copy's, and delete one (it stays in the history). A checkout of a subfolder
   (trunk/src) switches to the same subfolder. Switch to URL covers
-  repositories without the trunk/branches/tags layout.
+  repositories without the trunk/branches/tags layout. If the server's address
+  changes (http to https, a new name), **Server moved…** points the working
+  copy at it.
 - **Locks**: lock a file you can't merge (CAD models, Office documents,
   images) before editing it, so nobody else changes it at the same time. The
   Locks tab lists the files that need a lock (svn:needs-lock, read-only until
