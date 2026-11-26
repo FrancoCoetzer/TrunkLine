@@ -75,6 +75,7 @@ const (
 	KindLocked            // the working copy is locked: svn cleanup
 	KindCanceled          // the user canceled
 	KindLockConflict      // a file is locked by someone else, or this working copy's lock was taken
+	KindNeedUpdate        // the working copy must be updated first (mixed revisions, for a merge)
 )
 
 // Error is a failed svn run.
@@ -100,6 +101,7 @@ var (
 	// obtained; E160037: committing a file whose lock was taken over (same
 	// user, another working copy); E160039: committing or unlocking a file
 	// another user has locked; E195022: unlocking a file locked by someone else.
+	needUpdateCodes   = []string{"E195020"} // can't merge into a mixed-revision working copy
 	lockConflictCodes = []string{"W160035", "E200009", "E160037", "E160039", "E195022"}
 )
 
@@ -117,6 +119,8 @@ func newError(stderr string, err error) *Error {
 		e.Kind = KindCert
 	case e.has(authCodes):
 		e.Kind = KindAuth
+	case e.has(needUpdateCodes):
+		e.Kind = KindNeedUpdate
 	case e.has(lockConflictCodes):
 		e.Kind = KindLockConflict
 	case e.has(lockedCodes):

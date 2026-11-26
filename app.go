@@ -81,7 +81,7 @@ func (a *App) wrap(err error, host string) error {
 	}
 	kinds := map[svn.Kind]string{
 		svn.KindAuth: "auth", svn.KindCert: "cert", svn.KindConflict: "conflict",
-		svn.KindLocked: "locked", svn.KindCanceled: "canceled", svn.KindLockConflict: "lockconflict",
+		svn.KindLocked: "locked", svn.KindCanceled: "canceled", svn.KindLockConflict: "lockconflict", svn.KindNeedUpdate: "needupdate",
 	}
 	kind, ok := kinds[svn.KindOf(err)]
 	if !ok {
@@ -1185,4 +1185,37 @@ func (a *App) DeleteBranch(wc, kind, name, message string) (int, error) {
 	}
 	rev, err := c.DeleteURL(a.ctx, o, svn.Layout{Base: l.Base}.URLOf(kind, name), message)
 	return rev, a.wrap(err, host)
+}
+
+// --- Undo a commit ----------------------------------------------------------------
+
+// UndoRevision takes the changes of revision rev back out of the working
+// copy (a reverse merge), as uncommitted local changes to review and commit.
+// The working copy must be updated first when it's at mixed revisions or
+// older than rev: a "needupdate" error.
+func (a *App) UndoRevision(wc string, rev int) error {
+	c, err := a.client()
+	if err != nil {
+		return err
+	}
+	if rev < 1 {
+		return &appError{Kind: "other", Message: "Pick a revision to undo."}
+	}
+	host := a.wcHost(wc)
+	info, err := c.Info(a.ctx, a.opts(host), wc)
+	if err != nil {
+		return a.wrap(err, host)
+	}
+	if rev > info.Revision {
+		return &appError{Kind: "needupdate", Message: fmt.Sprintf(
+			"r%d is newer than your working copy (r%d): update first, so the undo applies to files that have that change.", rev, info.Revision)}
+	}
+	err = a.longOp(func(ctx context.Context, line func(string)) error {
+		return c.Merge(ctx, a.opts(host), info.URL, -rev, wc, line)
+	})
+	if svn.KindOf(err) == svn.KindNeedUpdate {
+		return &appError{Kind: "needupdate", Message: "Your working copy has files at different revisions " +
+			"(normal after a commit): svn needs it updated before it can undo a commit."}
+	}
+	return a.wrap(err, host)
 }

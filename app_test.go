@@ -483,3 +483,18 @@ func TestBranchesNoLayout(t *testing.T) {
 		t.Error("branch without a layout was allowed")
 	}
 }
+
+func TestUndoRevisionNewer(t *testing.T) {
+	a, wc := testApp(t)
+	put(t, filepath.Join(wc, "f.c"))
+	if _, err := a.Commit(wc, "f", []string{"f.c"}, false, false); err != nil {
+		t.Fatal(err) // r1; the working copy root is still at r0
+	}
+	err := a.UndoRevision(wc, 1)
+	if err == nil || !strings.Contains(err.Error(), `"kind":"needupdate"`) || !strings.Contains(err.Error(), "newer than your working copy") {
+		t.Errorf("undoing a revision newer than the working copy: %v", err)
+	}
+	if err := a.UndoRevision(wc, 0); err == nil {
+		t.Error("undoing r0 accepted")
+	}
+}

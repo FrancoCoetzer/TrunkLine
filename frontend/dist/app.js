@@ -676,7 +676,11 @@ function showRevision(e) {
   d.replaceChildren(
     el("div", {}, el("b", {}, "r" + e.revision), "  ", e.author || "", el("span", { class: "muted" }, "  " + fmtDate(e.date))),
     el("pre", {}, e.message || "(no message)"),
-    el("div", { class: "row" }, el("button", { onclick: () => pick(null, root + "@" + e.revision, e.revision) }, "Show all changes")),
+    el("div", { class: "row" },
+      el("button", { onclick: () => pick(null, root + "@" + e.revision, e.revision) }, "Show all changes"),
+      " ",
+      el("button", { class: "danger", title: "Take this commit's changes back out of your working copy, to review and commit",
+        onclick: () => undoRevision(e) }, "Undo this commit")),
     paths);
   $("revDiff").replaceChildren(el("div", { class: "placeholder" }, "Pick a file to see what this revision changed in it."));
 }
@@ -888,6 +892,46 @@ $("importHereBtn").onclick = async () => {
     if (state.view && state.view.type === "browse") listBrowse();
   }
 };
+
+// ---- Undo a commit -------------------------------------------------------------------------------
+
+async function undoRevision(e) {
+  const wc = state.view.path;
+  const local = state.changes.filter(c => localChange(c) && c.item !== "unversioned").length;
+  const first = (e.message || "").split("\n")[0];
+  const msg = `r${e.revision}'s changes are taken back out of your working copy, as local changes you can check and then commit. ` +
+    "Nothing is sent to the server until you commit." +
+    (local ? `\n\nYou have ${local} uncommitted change${local === 1 ? "" : "s"}: the undo adds to them, and where they touch ` +
+      "the same lines you'll get conflicts. Committing or reverting them first keeps things simple." : "");
+  if (!await confirmDanger(`Undo r${e.revision}?`, msg + (first ? `\n\nr${e.revision}: ${first}` : ""), `Undo r${e.revision}`)) return;
+  const run = () => withProgress(`Undoing r${e.revision}`, () => call("UndoRevision", wc, e.revision));
+  try {
+    await run();
+  } catch (err) {
+    const er = parseErr(err);
+    if (er.kind === "canceled") return;
+    if (er.kind !== "needupdate") return report(er);
+    $("progDlg").close();
+    if (!await confirmDanger("Update first?", er.message, "Update and undo")) return;
+    try {
+      await withProgress("Updating " + $("wcName").textContent, () => call("Update", wc));
+      await refreshWc(false);
+      if (conflictsAfter("Updated")) return;
+      await run();
+    } catch (err2) {
+      if (parseErr(err2).kind !== "canceled") report(err2);
+      return;
+    }
+  }
+  state.log = [];
+  await refreshWc(false);
+  if (!$("commitMsg").value.trim()) $("commitMsg").value = `Undo r${e.revision}` + (first ? `: ${first}` : "");
+  if (!conflictsAfter(`Undid r${e.revision}`)) {
+    $("progDlg").close();
+    setTab("changes");
+    toast(`r${e.revision} is undone in your working copy. Check the changes, then commit them (the message is filled in).`, "ok");
+  }
+}
 
 // ---- Branches ----------------------------------------------------------------------------------
 
