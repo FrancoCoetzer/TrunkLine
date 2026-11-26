@@ -19,6 +19,10 @@ that works the same on both, built with Go and [Wails](https://wails.io/).
   update would bring in without changing anything (`svn status -u`).
 - **History**: the log of the working copy's URL. Click a revision to see its
   message and files, and a file to see what that revision changed in it.
+- **Blame**: who last changed each line of a file, and in which revision, with
+  newer changes highlighted. Click a revision for its commit message. Open it
+  from a changed file (Blame, next to Open file), or by clicking any file in
+  the repository browser. Your uncommitted lines show as "not committed".
 - **Repositories**: save a repository URL, browse its folders and check out any
   folder (`trunk`, a branch, a tag).
 - **Export** (repository browser): just the files of a folder, as a plain copy
@@ -105,7 +109,7 @@ banner. `make dist TAG=v9.9.9` builds the same files locally for testing.
 
 Early days: the everyday workflow (checkout, update, commit, history, browse,
 export, import) works and is tested against real repositories. Not yet there:
-blame, switching branches, merging, side-by-side diffs. Bug reports and pull
+switching branches, merging, side-by-side diffs. Bug reports and pull
 requests are welcome.
 
 ## License

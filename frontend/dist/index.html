@@ -96,6 +96,23 @@
   dialog .row input { flex: 1; }
   dialog .actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
   dialog p { color: var(--ink-dim); line-height: 1.5; }
+  /* Blame */
+  #blameDlg { width: 96vw; max-width: none; height: 92vh; padding: 0; }
+  #blameDlg form { height: 100%; gap: 0; }
+  #blameDlg .head { display: flex; align-items: center; gap: 10px; padding: 12px 16px; border-bottom: 1px solid var(--line); }
+  #blameDlg .head h3 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #blameCommit { padding: 8px 16px; border-bottom: 1px solid var(--line); color: var(--ink-dim); white-space: pre-wrap; max-height: 30%; overflow: auto; }
+  #blameCommit b { color: var(--ink); }
+  #blameBody { flex: 1; min-height: 0; overflow: auto; }
+  table.blame { width: 100%; font-size: 12px; line-height: 1.45; }
+  table.blame td { border: none; padding: 0 8px; vertical-align: top; }
+  table.blame tr.g1 { background: color-mix(in oklab, var(--panel) 70%, transparent); }
+  table.blame tr.hl { background: var(--cyan-tint); }
+  table.blame td.meta { white-space: nowrap; color: var(--ink-dim); cursor: pointer; border-left: 3px solid var(--age, transparent); width: 1%; }
+  table.blame td.meta:hover { color: var(--cyan); }
+  table.blame td.meta .brev { color: var(--ink); display: inline-block; min-width: 5ch; }
+  table.blame td.ln { color: var(--ink-dim); text-align: right; user-select: none; width: 1%; }
+  table.blame td.code { white-space: pre; }
   #progLog { height: 260px; overflow: auto; background: var(--bg); border: 1px solid var(--line); border-radius: var(--radius); padding: 6px 8px; white-space: pre; font-size: 12px; }
 
   #toast { position: fixed; right: 16px; bottom: 16px; max-width: min(560px, 80vw); padding: 10px 14px; border-radius: var(--radius-lg);
@@ -205,7 +222,7 @@
         </div>
         <div class="pane">
           <div class="toolbar"><span id="diffTitle" class="muted">Pick a file to see its changes</span>
-            <span style="flex:1"></span><button class="ghost" id="openFileBtn" hidden>Open file</button></div>
+            <span style="flex:1"></span><button class="ghost" id="blameFileBtn" hidden title="Who last changed each line">Blame</button><button class="ghost" id="openFileBtn" hidden>Open file</button></div>
           <div class="scroll"><div id="diff" class="diff"></div></div>
         </div>
       </div>
@@ -316,6 +333,16 @@
     <button type="button" id="aboutCheck">Check for updates</button>
     <button value="cancel">Close</button>
   </div>
+</form></dialog>
+
+<dialog id="blameDlg"><form method="dialog">
+  <div class="head">
+    <h3 id="blameTitle"></h3><span style="flex:1"></span>
+    <span class="muted" id="blameStats"></span>
+    <button value="cancel">Close</button>
+  </div>
+  <div id="blameCommit">Click a revision on the left to see its commit message. Brighter bars are newer changes.</div>
+  <div id="blameBody"></div>
 </form></dialog>
 
 <div id="toast" hidden></div>

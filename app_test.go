@@ -152,3 +152,24 @@ func TestExportImportRefuse(t *testing.T) {
 		t.Error("import of a missing folder accepted")
 	}
 }
+
+func TestBlameFile(t *testing.T) {
+	a, wc := testApp(t)
+	put(t, filepath.Join(wc, "src", "a.c"))
+	if _, err := a.Commit(wc, "a", []string{"src"}); err != nil {
+		t.Fatal(err)
+	}
+	b, err := a.BlameFile(wc, "src/a.c")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b.Title != "^/src/a.c" || b.RepoRoot == "" || len(b.Lines) != 1 || b.Lines[0].Text != "x" || b.Lines[0].Revision != 1 {
+		t.Errorf("blame = %+v", b)
+	}
+	if _, err := a.BlameFile(wc, "src"); err == nil || !strings.Contains(err.Error(), "folder") {
+		t.Errorf("blaming a folder: %v", err)
+	}
+	if b, err := a.BlameURL(b.RepoRoot + "/src/a.c@1"); err != nil || b.Title != "^/src/a.c@1" {
+		t.Errorf("BlameURL = %+v, %v", b, err)
+	}
+}
