@@ -194,6 +194,12 @@ func rel(root, p string) string {
 		p = filepath.Join(root, p)
 	}
 	r, err := filepath.Rel(root, p)
+	if err != nil || r == ".." || strings.HasPrefix(r, ".."+string(filepath.Separator)) {
+		// One of them by a short (8.3) name on Windows: compare long names.
+		if r2, err2 := filepath.Rel(LongPath(root), LongPath(p)); err2 == nil {
+			r, err = r2, nil
+		}
+	}
 	if err != nil {
 		return filepath.ToSlash(p)
 	}

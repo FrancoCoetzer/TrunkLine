@@ -57,10 +57,18 @@ func TestMoveShortPath(t *testing.T) {
 	if err := c.Move(ctx, Opts{}, f, filepath.Join(wc, "docs", "b.txt")); err != nil {
 		t.Fatalf("move via the short path %s: %v", short, err)
 	}
-	if got := LongPath(short); !strings.EqualFold(got, long) {
-		t.Errorf("LongPath(%s) = %s, want %s", short, got, long)
+	// Every short part is spelled out (the temp folder itself may have one).
+	full := LongPath(short)
+	if strings.Contains(full, "~") || !strings.HasSuffix(full, `\a long folder name`) {
+		t.Errorf("LongPath(%s) = %s", short, full)
 	}
-	if got := LongPath(filepath.Join(short, "not yet", "x.txt")); !strings.EqualFold(got, filepath.Join(long, "not yet", "x.txt")) {
+	if got := LongPath(filepath.Join(short, "not yet", "x.txt")); got != filepath.Join(full, "not yet", "x.txt") {
 		t.Errorf("LongPath of a missing path = %s", got)
+	}
+	// Status names files relative to the working copy whichever name it has.
+	write(t, filepath.Join(wc, "new.txt"), "n\n")
+	st := statusMap(t, c, wc)
+	if st["new.txt"].Item != "unversioned" || st["docs/b.txt"].Item != "added" {
+		t.Errorf("status via the short path = %+v", st)
 	}
 }
