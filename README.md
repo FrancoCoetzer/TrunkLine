@@ -18,18 +18,16 @@ that works the same on both, built with Go and [Wails](https://wails.io/).
 New to TrunkLine? [docs/usage.md](docs/usage.md) walks through the everyday
 work first, then everything else.
 
-New to TrunkLine? [docs/usage.md](docs/usage.md) walks through the everyday
-work first, then everything else.
-
-
 - **Working copies**: a sidebar of your checkouts. Add one you already have, or
   check out from a repository.
 - **Changes**: what `svn status` shows, with a diff of the picked file. Tick
   files and commit (Ctrl+Enter). New files and folders are added for you, and
   files deleted from disk are deleted in the repository. You can also revert,
-  add and resolve conflicts (keep mine, take theirs, or mark your edited file
-  resolved). A file that still has conflict markers (`<<<<<<<`) in it can't be
-  marked resolved or committed by accident.
+  add and resolve conflicts: in the merge editor, pick mine, theirs or both
+  for each conflict or edit it by hand, or resolve whole files (keep mine,
+  take theirs, or mark your edited file resolved). A file that still has
+  conflict markers (`<<<<<<<`) in it can't be marked resolved or committed by
+  accident.
 - **Ignore** new files you never want to commit (build output, logs) from the
   Changes list, by name or by extension, in one folder or its subfolders too.
 - **Changelists**: group changed files under a name ("login fix") to commit
@@ -77,6 +75,8 @@ work first, then everything else.
   repositories without the trunk/branches/tags layout. If the server's address
   changes (http to https, a new name), **Server moved…** points the working
   copy at it.
+- **Revision graph** (View menu, or Graph on the Branches tab): trunk,
+  branches, merges and tags over time.
 - **Merging**: "Merge into mine…" on the Branches tab lists the commits of
   another branch (or trunk) that you don't have yet. Merge all of them (keep a
   branch up to date with trunk, or bring a finished branch back) or tick just
@@ -214,28 +214,53 @@ banner. `make dist TAG=v9.9.9` builds the same files locally for testing.
 | `internal/config` | saved settings: `~/.config/trunkline/config.json` (`%AppData%\trunkline` on Windows) |
 | `frontend/dist` | `index.html`, `app.js`, and `theme.css` |
 | `docs` | [usage.md](docs/usage.md) (how to use the app) and the README's screenshots |
-| `docs` | [usage.md](docs/usage.md) (how to use the app) and the README's screenshots |
 | `packaging` | the icon, `dist.sh` (release files), the .deb and .rpm, the Windows setup (NSIS) and .msi (wixl) |
 | `.github/workflows` | CI, and the release build |
 
 ## Status
 
-Early days: the everyday workflow (checkout, update, commit, history, browse,
-export, import) works and is tested against real repositories. Bug reports
-and pull requests are welcome.
+Version 0.7. Everything listed under "What it does" works and is tested
+against real svn repositories (`make test`). Bug reports and pull requests
+are welcome.
 
-Planned for later:
-- A three-way merge editor for conflicts (mine, theirs and the result side by
-  side), instead of only keep mine / take theirs / I edited it.
-- A revision graph: branches, merges and tags over time.
-- Code-signed Windows installers (no SmartScreen warning): the release
-  workflow signs them once the repository has signing secrets (see
-  `packaging/windows/sign.sh`); it needs a certificate or a signing service.
-- Publishing to Flathub and the Snap Store, so those packages update
-  themselves.
-- When svn 1.15 reaches the distributions: choosing which svn TrunkLine uses,
-  a clear message for svn older than 1.10, and an explanation when a working
-  copy is in 1.15's new format and an older svn can't open it.
+## Where it's going
+
+One rule guides every change: **TrunkLine should never get in the way.**
+Updating, looking at your changes and committing should take no thought and
+no menus. The deeper tools (merging, locks, patches, blame, properties) stay
+one click away from where you need them instead of in front of you all the
+time. The goal is a client that's quick for everyday work, still has the
+deeper tools when a task needs them, and is free on every platform.
+
+What's next, roughly in order:
+
+- **Right-click in your file manager**: Commit, Update, Log, Blame, Lock and
+  more from a TrunkLine menu in Nautilus, Dolphin, Nemo, Caja, Thunar and
+  PCManFM-Qt, with svn status on files where the file manager allows it.
+  "Open with TrunkLine" on folders works in any file manager, and a command
+  line (`trunkline commit .`) is there for the terminal.
+- **Image diffs**: see what changed in a picture: side by side, a swipe,
+  onion skin, or the differences highlighted. For teams with art, designs and
+  other binary assets.
+- **Big repositories**: fast history and search over hundreds of thousands
+  of revisions, and quick status in very large working copies.
+- **TortoiseSVN's project settings**: issue-tracker links in History
+  (`bugtraq:` properties) and commit message templates and rules (`tsvn:`
+  properties), so teams can switch without changing their repositories.
+- **macOS**.
+- **Signed Windows installers** (no SmartScreen warning) and a TrunkLine
+  menu in Explorer.
+- **Translations** into other languages.
+- **Flathub and the Snap Store**, so those packages update themselves.
+- **Subversion 1.15**: once it reaches the distributions, choosing which svn
+  TrunkLine uses, and clear messages about working copy formats and old svn
+  versions.
+
+Later: shelving (put changes aside and bring them back), Windows 11's
+top-level right-click menu, and Finder integration on macOS.
+
+Something missing that you need?
+[Open an issue](https://github.com/FrancoCoetzer/TrunkLine/issues).
 
 ## License
 
