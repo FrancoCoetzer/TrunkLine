@@ -53,7 +53,7 @@ func TestParseArgs(t *testing.T) {
 func TestResolve(t *testing.T) {
 	a, wc := testApp(t)
 	put(t, filepath.Join(wc, "src", "new.c")) // unversioned: still found
-	long := svn.LongPath(wc)                   // Windows: the temp folder can come as a short (8.3) name
+	long := svn.LongPath(wc)                  // Windows: the temp folder can come as a short (8.3) name
 	other := t.TempDir()
 
 	act := a.resolve(&cliRequest{Action: "commit", Paths: []string{"src/new.c", ".", other}}, wc)
