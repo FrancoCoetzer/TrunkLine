@@ -64,7 +64,16 @@ jobs:
 
       - run: svn --version --quiet
       - run: go vet ./...
-      - run: go test ./...
+      # A failing test is also reported as an annotation (on the run's page,
+      # readable without access to the logs).
+      - name: go test ./...
+        run: |
+          go test ./... 2>&1 | Tee-Object -FilePath test-output.txt
+          if ($LASTEXITCODE -ne 0) {
+            Select-String -Path test-output.txt -Pattern '--- FAIL|svn: [EW]\d{6}|_test\.go:\d+:' |
+              Select-Object -First 10 | ForEach-Object { "::error::$($_.Line.Trim())" }
+            exit 1
+          }
       - name: Build
         run: |
           python packaging/windows/make_syso.py 0.0.0 (go env GOARCH)
