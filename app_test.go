@@ -859,3 +859,25 @@ func TestDiffFolderOnly(t *testing.T) {
 		t.Errorf("file diff = %q", d)
 	}
 }
+
+func TestSetLook(t *testing.T) {
+	a, _ := testApp(t)
+	if s := a.Startup(); s.Theme != "system" || s.Font != "mono" {
+		t.Errorf("default look = %q, %q", s.Theme, s.Font)
+	}
+	if err := a.SetLook("light", "regular"); err != nil {
+		t.Fatal(err)
+	}
+	if s := a.Startup(); s.Theme != "light" || s.Font != "regular" {
+		t.Errorf("look = %q, %q", s.Theme, s.Font)
+	}
+	if err := a.SetLook("pink", "mono"); err == nil {
+		t.Error("an unknown theme was saved")
+	}
+	if err := a.SetLook("system", "mono"); err != nil {
+		t.Fatal(err)
+	}
+	if s := a.Startup(); s.Theme != "system" || s.Font != "mono" {
+		t.Errorf("back to the default: %q, %q", s.Theme, s.Font)
+	}
+}

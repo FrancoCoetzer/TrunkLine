@@ -75,6 +75,9 @@ that works the same on both, built with Go and [Wails](https://wails.io/).
   (a checkout over it, like TortoiseSVN's "import in place"), so you keep
   working where you were. To take a friend's project into your own repo,
   export it from theirs, then import that folder into yours.
+- **Look** (click the version number, top right): a dark or light pastel
+  theme, or follow the system's setting; a monospace or regular font (diffs,
+  blame and file contents stay monospace).
 - **Logins**: when a server asks for one, a login dialog opens and the
   operation is retried. The password is kept for the session only and handed
   to svn on stdin. svn caches it too if a secure store is set up (GNOME

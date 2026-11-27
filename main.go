@@ -28,7 +28,7 @@ func main() {
 		Height:           800,
 		MinWidth:         760,
 		MinHeight:        480,
-		BackgroundColour: &options.RGBA{R: 9, G: 13, B: 19, A: 255},
+		BackgroundColour: app.windowColour(),
 		AssetServer:      &assetserver.Options{Assets: assets},
 		OnStartup:        app.startup,
 		Bind:             []any{app},

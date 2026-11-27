@@ -19,6 +19,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 
 	"trunkline/internal/config"
@@ -148,6 +149,8 @@ type Startup struct {
 	Servers       []config.Server      `json:"servers"`
 	Home          string               `json:"home"`        // the user's home folder, shown as ~
 	UpdateCheck   bool                 `json:"updateCheck"` // check for new releases automatically
+	Theme         string               `json:"theme"`       // "dark", "light" or "system"
+	Font          string               `json:"font"`        // "mono" or "regular"
 }
 
 func (a *App) Startup() Startup {
@@ -167,6 +170,7 @@ func (a *App) Startup() Startup {
 		s.WorkingCopies = slices.Clone(c.WorkingCopies)
 		s.Servers = slices.Clone(c.Servers)
 		s.UpdateCheck = !c.NoUpdateCheck
+		s.Theme, s.Font = lookOf(c)
 	})
 	return s
 }
@@ -869,6 +873,48 @@ func (a *App) InstallKind() string { return update.InstallKind() }
 // SetUpdateCheck turns the automatic check on or off.
 func (a *App) SetUpdateCheck(on bool) error {
 	return a.cfg.Update(func(c *config.Config) { c.NoUpdateCheck = !on })
+}
+
+// lookOf is the saved theme ("dark", "light", "system") and font ("mono",
+// "regular"), with anything unknown read as the default.
+func lookOf(c *config.Config) (theme, font string) {
+	theme, font = "system", "mono"
+	if c.Theme == "dark" || c.Theme == "light" {
+		theme = c.Theme
+	}
+	if c.Font == "regular" {
+		font = c.Font
+	}
+	return theme, font
+}
+
+// windowColour is the window's background before the page has painted: the
+// light theme's when it was picked, otherwise the dark theme's (the page
+// sets it again once it knows the system's setting).
+func (a *App) windowColour() *options.RGBA {
+	theme := "system"
+	a.cfg.Read(func(c *config.Config) { theme, _ = lookOf(c) })
+	if theme == "light" {
+		return &options.RGBA{R: 0xf4, G: 0xf2, B: 0xf9, A: 255}
+	}
+	return &options.RGBA{R: 0x16, G: 0x15, B: 0x1f, A: 255}
+}
+
+// SetLook saves the theme ("system", "dark" or "light") and the font
+// ("mono" or "regular").
+func (a *App) SetLook(theme, font string) error {
+	if !slices.Contains([]string{"system", "dark", "light"}, theme) || !slices.Contains([]string{"mono", "regular"}, font) {
+		return fmt.Errorf("unknown look %q, %q", theme, font)
+	}
+	return a.cfg.Update(func(c *config.Config) {
+		c.Theme, c.Font = theme, font
+		if theme == "system" {
+			c.Theme = ""
+		}
+		if font == "mono" {
+			c.Font = ""
+		}
+	})
 }
 
 // InstallUpdate installs release tag, then starts the new version and quits.

@@ -10,6 +10,14 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>TrunkLine</title>
+<script>
+  // The look saved last time, before anything paints (app.js checks it against the settings file).
+  try {
+    const t = localStorage.getItem("theme"), f = localStorage.getItem("font");
+    if (t === "dark" || t === "light") document.documentElement.dataset.theme = t;
+    if (f === "regular") document.documentElement.dataset.font = f;
+  } catch { /* storage off: the default look */ }
+</script>
 <link rel="stylesheet" href="theme.css">
 <style>
   @layer reset { * { box-sizing: border-box; margin: 0; } }
@@ -111,7 +119,7 @@
   button.icon { min-width: 30px; font-size: 15px; line-height: 1; padding: 4px 8px; }
   /* The "More" menu: a popover list of buttons under its trigger (placed by script before it opens) */
   .menu { margin: 0; inset: auto; padding: 4px; min-width: 240px; background: var(--panel); color: var(--ink);
-    border: 1px solid var(--line-strong); border-radius: var(--radius-lg); box-shadow: 0 8px 28px rgb(0 0 0 / .45); }
+    border: 1px solid var(--line-strong); border-radius: var(--radius-lg); box-shadow: 0 8px 28px var(--shadow); }
   .menu:popover-open { display: flex; flex-direction: column; }
   .menu button { text-align: left; background: transparent; border-color: transparent; padding: 7px 10px; }
   .menu button:hover:not(:disabled), .menu button:focus-visible { background: var(--panel-hi); border-color: transparent; }
@@ -129,8 +137,8 @@
 
   .diff { font-family: var(--mono); font-size: 12px; line-height: 1.45; padding: 8px 0; white-space: pre; }
   .diff div { padding: 0 12px; min-height: 1.45em; }
-  .diff .add { background: var(--green-tint); color: #d3f3dd; }
-  .diff .del { background: var(--red-tint); color: #fbd5de; }
+  .diff .add { background: var(--green-tint); color: var(--diff-add-ink); }
+  .diff .del { background: var(--red-tint); color: var(--diff-del-ink); }
   .diff .hunk { color: var(--cyan); background: var(--cyan-tint); margin-top: 6px; }
   .diff .meta { color: var(--ink-dim); }
   .placeholder { color: var(--ink-dim); padding: 16px; }
@@ -146,7 +154,7 @@
 
   /* margin: auto centres a modal dialog; the reset above (* { margin: 0 }) would pin it to the top left */
   dialog { margin: auto; background: var(--panel); color: var(--ink); border: 1px solid var(--line); border-radius: var(--radius-lg); padding: 18px; width: min(520px, 92vw); }
-  dialog::backdrop { background: rgb(0 0 0 / .55); }
+  dialog::backdrop { background: var(--backdrop); }
   dialog form { display: flex; flex-direction: column; gap: 10px; }
   dialog h3 { font-size: 14px; }
   dialog .field { display: flex; flex-direction: column; gap: 4px; }
@@ -163,7 +171,7 @@
   #blameCommit { padding: 8px 16px; border-bottom: 1px solid var(--line); color: var(--ink-dim); white-space: pre-wrap; max-height: 30%; overflow: auto; }
   #blameCommit b { color: var(--ink); }
   #blameBody { flex: 1; min-height: 0; overflow: auto; }
-  table.blame { width: 100%; font-size: 12px; line-height: 1.45; }
+  table.blame { width: 100%; font-size: 12px; line-height: 1.45; font-family: var(--mono); }
   table.blame td { border: none; padding: 0 8px; vertical-align: top; }
   table.blame tr.g1 { background: color-mix(in oklab, var(--panel) 70%, transparent); }
   table.blame tr.hl { background: var(--cyan-tint); }
@@ -172,13 +180,13 @@
   table.blame td.meta .brev { color: var(--ink); display: inline-block; min-width: 5ch; }
   table.blame td.ln { color: var(--ink-dim); text-align: right; user-select: none; width: 1%; }
   table.blame td.code { white-space: pre; }
-  #progLog { height: 260px; overflow: auto; background: var(--bg); border: 1px solid var(--line); border-radius: var(--radius); padding: 6px 8px; white-space: pre; font-size: 12px; }
+  #progLog { font-family: var(--mono); height: 260px; overflow: auto; background: var(--bg); border: 1px solid var(--line); border-radius: var(--radius); padding: 6px 8px; white-space: pre; font-size: 12px; }
 
   /* Messages: a stack in the bottom right. They wait while a dialog is open (see toast() in app.js). */
   #toasts { position: fixed; right: 16px; bottom: 16px; z-index: 10; display: flex; flex-direction: column; align-items: flex-end;
     gap: 8px; max-width: min(560px, calc(100vw - 32px)); pointer-events: none; }
   .toast { pointer-events: auto; display: flex; align-items: flex-start; gap: 8px; padding: 10px 8px 10px 14px; border-radius: var(--radius-lg);
-    border: 1px solid var(--line-strong); background: var(--panel-hi); box-shadow: 0 6px 24px rgb(0 0 0 / .4); max-width: 100%; }
+    border: 1px solid var(--line-strong); background: var(--panel-hi); box-shadow: 0 6px 24px var(--shadow); max-width: 100%; }
   .toast.err { border-color: var(--red); }
   .toast.ok { border-color: var(--green); }
   .toast .toast-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
@@ -204,7 +212,7 @@
   }
   dialog::backdrop { background-color: rgb(0 0 0 / 0); transition-property: background-color; transition-duration: var(--dur-exit); }
   dialog[open]::backdrop {
-    background-color: rgb(0 0 0 / .55); transition-duration: var(--dur-base);
+    background-color: var(--backdrop); transition-duration: var(--dur-base);
     @starting-style { background-color: rgb(0 0 0 / 0); }
   }
   @supports (overlay: auto) {
@@ -268,6 +276,8 @@
   .banner .row { display: flex; gap: 6px; }
   #aboutDlg dl { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; }
   #aboutDlg dt { color: var(--ink-dim); }
+  #aboutDlg fieldset.look { border: 1px solid var(--line); border-radius: var(--radius); padding: 8px 10px 10px; display: grid; grid-template-columns: auto 1fr; gap: 8px 10px; align-items: center; }
+  #aboutDlg fieldset.look legend { color: var(--ink-dim); padding: 0 4px; }
   #aboutDlg dd { margin: 0; overflow-wrap: anywhere; }
 </style>
 </head>
@@ -276,7 +286,7 @@
   <span class="brand">Trunk<b>Line</b></span>
   <span id="svnChip" class="chip err" hidden>svn missing</span>
   <span class="spacer"></span>
-  <button class="ghost" id="version" title="About TrunkLine and updates"></button>
+  <button class="ghost" id="version" title="About TrunkLine, its look, and updates"></button>
 </header>
 
 <div id="busyBar" class="indeterminate" aria-hidden="true"></div>
@@ -536,6 +546,20 @@
     <dt>Updates</dt><dd id="aboutUpdate">Not checked yet</dd>
   </dl>
   <label style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="aboutAuto"> Check for updates automatically</label>
+  <fieldset class="look">
+    <legend>Look</legend>
+    <label for="lookTheme">Theme</label>
+    <select id="lookTheme">
+      <option value="system">Follow the system (light or dark)</option>
+      <option value="dark">Dark</option>
+      <option value="light">Light</option>
+    </select>
+    <label for="lookFont">Font</label>
+    <select id="lookFont">
+      <option value="mono">Monospace</option>
+      <option value="regular">Regular (code stays monospace)</option>
+    </select>
+  </fieldset>
   <div class="actions">
     <button type="button" id="aboutRepo">GitHub page</button>
     <button type="button" id="aboutCheck">Check for updates</button>

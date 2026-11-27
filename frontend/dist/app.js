@@ -2240,9 +2240,41 @@ for (const id of ["addWcBtn", "welcomeWc", "addServerBtn", "welcomeServer", "rev
 
 // ---- Start ------------------------------------------------------------------------------------
 
+// ---- Look: theme and font ---------------------------------------------------------------------
+//
+// The choice is saved in the settings file (SetLook) and copied to
+// localStorage, which the script in index.html's <head> reads to apply it
+// before anything paints.
+
+function applyLook(theme, font) {
+  const root = document.documentElement;
+  if (theme === "dark" || theme === "light") root.dataset.theme = theme; else delete root.dataset.theme;
+  if (font === "regular") root.dataset.font = font; else delete root.dataset.font;
+  store("theme", theme);
+  store("font", font);
+  $("lookTheme").value = theme;
+  $("lookFont").value = font;
+  syncWindowColour();
+}
+
+// syncWindowColour gives the window behind the page (seen while it opens or
+// resizes) the page's background.
+function syncWindowColour() {
+  const m = getComputedStyle(document.body).backgroundColor.match(/\d+/g);
+  if (m && window.runtime && window.runtime.WindowSetBackgroundColour) window.runtime.WindowSetBackgroundColour(+m[0], +m[1], +m[2], 255);
+}
+matchMedia("(prefers-color-scheme: light)").addEventListener("change", syncWindowColour);
+
+$("lookTheme").onchange = $("lookFont").onchange = async () => {
+  const theme = $("lookTheme").value, font = $("lookFont").value;
+  applyLook(theme, font);
+  try { await call("SetLook", theme, font); } catch (e) { report(e); }
+};
+
 async function start() {
   const s = await Go().Startup();
   state.startup = s;
+  applyLook(s.theme, s.font);
   state.wcs = s.workingCopies;
   state.servers = s.servers;
   $("version").textContent = s.version;

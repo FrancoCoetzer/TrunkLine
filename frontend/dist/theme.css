@@ -1,11 +1,15 @@
-/* TrunkLine's theme. Dark only: dusk-violet panels, pastel colours, monospace.
+/* TrunkLine's theme: dusk-violet panels with pastel colours (dark), or a lavender-white page with deeper
+   versions of the same colours (light). Monospace, or a regular font for the interface.
+
+   <html data-theme="dark|light"> picks one; without it the system's light/dark setting decides.
+   <html data-font="regular"> sets the interface (not diffs, blame or file contents) in the system's font.
 
    Colours have one meaning everywhere (the names are older than the pastels):
      --accent  peach       the main action of a group (button.primary), modified, busy, a warning
      --cyan    periwinkle  selected or toggled on, info, incoming changes, keyboard focus
      --green   mint        healthy: added, connected, done
      --red     rose        a conflict, a failure, a refusal, danger
-   Every text colour is at least 5.9:1 on every panel (4.5:1 is the minimum); pastels are close in
+   Every text colour is at least 4.5:1 on every panel and tint (5.9:1 in dark); pastels are close in
    lightness, so a meaning never rests on colour alone (status letters, labels). 
    Page code may use the tokens and the classes below; nothing here needs a page to change its markup.
 
@@ -36,6 +40,11 @@
     --red: #f5a5b8;
     /* Cascadia Mono comes with Windows 11, DejaVu Sans Mono with most Linux desktops */
     --mono: ui-monospace, "SF Mono", "Cascadia Mono", "JetBrains Mono", "DejaVu Sans Mono", "Liberation Mono", Menlo, Consolas, monospace;
+    --ui: var(--mono); /* the interface's font; code and file contents always use --mono */
+    --diff-add-ink: #d3f3dd;
+    --diff-del-ink: #fbd5de;
+    --shadow: rgb(0 0 0 / .45);
+    --backdrop: rgb(0 0 0 / .55);
     --radius: 6px;
     --radius-lg: 8px;
     /* tints for banners, chips, toggled buttons */
@@ -50,7 +59,62 @@
     scrollbar-color: #3a3852 var(--bg);
   }
 
-  body { background: var(--bg); color: var(--ink); font-family: var(--mono); font-size: 13px; }
+  /* The light theme: the same meanings, deeper colours so text stays readable on a light page. */
+  :root[data-theme="light"] {
+    --bg: #f4f2f9;
+    --panel: #fbfafd;
+    --panel-hi: #ebe8f3;
+    --line: #dcd8e8;
+    --line-strong: #86819f;
+    --ink: #2a2739;
+    --ink-dim: #5d5873;
+    --accent: #7f5a0c;
+    --cyan: #3a5aa8;
+    --green: #276a42;
+    --red: #a8334f;
+    --accent-tint: color-mix(in oklab, var(--accent) 10%, transparent);
+    --cyan-tint: color-mix(in oklab, var(--cyan) 10%, transparent);
+    --green-tint: color-mix(in oklab, var(--green) 10%, transparent);
+    --red-tint: color-mix(in oklab, var(--red) 10%, transparent);
+    --glow-accent: 0 0 10px color-mix(in oklab, var(--accent) 22%, transparent);
+    --diff-add-ink: #1d5533;
+    --diff-del-ink: #8a2242;
+    --shadow: rgb(60 50 90 / .18);
+    --backdrop: rgb(40 35 60 / .3);
+    color-scheme: light;
+    scrollbar-color: #c9c4da var(--bg);
+  }
+  /* The system's setting, unless one was picked: the same values as above. */
+  @media (prefers-color-scheme: light) {
+    :root:not([data-theme]) {
+      --bg: #f4f2f9;
+      --panel: #fbfafd;
+      --panel-hi: #ebe8f3;
+      --line: #dcd8e8;
+      --line-strong: #86819f;
+      --ink: #2a2739;
+      --ink-dim: #5d5873;
+      --accent: #7f5a0c;
+      --cyan: #3a5aa8;
+      --green: #276a42;
+      --red: #a8334f;
+      --accent-tint: color-mix(in oklab, var(--accent) 10%, transparent);
+      --cyan-tint: color-mix(in oklab, var(--cyan) 10%, transparent);
+      --green-tint: color-mix(in oklab, var(--green) 10%, transparent);
+      --red-tint: color-mix(in oklab, var(--red) 10%, transparent);
+      --glow-accent: 0 0 10px color-mix(in oklab, var(--accent) 22%, transparent);
+      --diff-add-ink: #1d5533;
+      --diff-del-ink: #8a2242;
+      --shadow: rgb(60 50 90 / .18);
+      --backdrop: rgb(40 35 60 / .3);
+      color-scheme: light;
+      scrollbar-color: #c9c4da var(--bg);
+    }
+  }
+  /* Cantarell and Ubuntu are GNOME's and Ubuntu's fonts, Segoe UI Windows'. */
+  :root[data-font="regular"] { --ui: system-ui, "Segoe UI", Ubuntu, Cantarell, "Noto Sans", "DejaVu Sans", sans-serif; }
+
+  body { background: var(--bg); color: var(--ink); font-family: var(--ui); font-size: 13px; }
   ::selection { background: color-mix(in oklab, var(--cyan) 30%, transparent); }
   code { font-family: var(--mono); }
 
@@ -63,7 +127,7 @@
 
   /* Buttons */
   button {
-    font-family: var(--mono); font-size: 12px; color: var(--ink); background: var(--panel-hi);
+    font-family: var(--ui); font-size: 12px; color: var(--ink); background: var(--panel-hi);
     border: 1px solid var(--line); border-radius: var(--radius); padding: 5px 11px; cursor: pointer;
     transition: border-color .12s, color .12s, background-color .12s, box-shadow .12s;
   }
@@ -82,7 +146,7 @@
 
   /* Fields */
   :is(input[type=text], input[type=number], input[type=search], input:not([type]), select, textarea) {
-    font-family: var(--mono); font-size: 12px; color: var(--ink); background: var(--bg);
+    font-family: var(--ui); font-size: 12px; color: var(--ink); background: var(--bg);
     border: 1px solid var(--line-strong); border-radius: var(--radius); padding: 4px 8px;
   }
   /* the open dropdown list is drawn by the system (WebKitGTK / WebView2): theme its options too */
