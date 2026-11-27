@@ -841,7 +841,7 @@ function afterChanges() {
     state.diffPath = null;
     $("diff").replaceChildren();
     $("diffTitle").textContent = "Pick a file to see its changes";
-    for (const id of ["openFileBtn", "blameFileBtn", "historyFileBtn", "propsFileBtn", "moveFileBtn"]) $(id).hidden = true;
+    for (const id of ["openFileBtn", "blameFileBtn", "historyFileBtn", "propsFileBtn", "moveFileBtn", "mergeFileBtn"]) $(id).hidden = true;
   }
   // The banner's guidance is done with once there's nothing left to act on.
   if (state.banner && state.banner.kind === "conflict" && !state.changes.some(c => c.item === "conflicted" || c.props === "conflicted" || c.treeConflict)) clearBanner();
@@ -989,6 +989,7 @@ async function showDiff(ch) {
   $("blameFileBtn").hidden = ch.isDir || ["unversioned", "added", "replaced", "missing"].includes(ch.item);
   $("historyFileBtn").hidden = ["unversioned", "added", "replaced"].includes(ch.item);
   $("propsFileBtn").hidden = ["unversioned", "missing", "deleted", "ignored", "obstructed"].includes(ch.item);
+  $("mergeFileBtn").hidden = ch.item !== "conflicted" || ch.isDir;
   $("moveFileBtn").hidden = ["missing", "deleted", "ignored", "obstructed"].includes(ch.item) || ch.path === ".";
   const path = state.view.path;
   $("diff").replaceChildren(el("div", { class: "placeholder" }, "Loading…"));
@@ -1589,6 +1590,226 @@ $("applyPatchBtn").onclick = async () => {
     return;
   }
 };
+
+// ---- The revision graph ---------------------------------------------------------------------------
+//
+// Lanes (trunk, branches) as columns, commits as rows (newest first): a
+// line along each lane while it exists, a curve from where each branch was
+// copied, a dashed curve for each merge, and tags as labels on their row.
+
+const LANE_COLOURS = ["var(--cyan)", "var(--accent)", "var(--green)", "var(--red)", "var(--ink-dim)"];
+const GRAPH_ROW = 26, GRAPH_COL = 18;
+
+async function openGraph() {
+  if (!state.view || state.view.type !== "wc") return;
+  $("graphBody").replaceChildren(el("div", { class: "placeholder" }, "Reading the history…"));
+  $("graphDetail").replaceChildren("Pick a commit.");
+  $("graphStats").textContent = "";
+  $("graphTitle").textContent = "Revision graph: " + $("wcName").textContent;
+  if (!$("graphDlg").open) ask($("graphDlg"));
+  let g;
+  try { g = await call("RevisionGraph", state.view.path); } catch (e) {
+    $("graphBody").replaceChildren(el("div", { class: "placeholder" }, parseErr(e).message));
+    return;
+  }
+  renderGraph(g);
+}
+$("graphBtn").onclick = () => flow(openGraph);
+
+function renderGraph(g) {
+  const svgNS = "http://www.w3.org/2000/svg";
+  const n = g.commits.length;
+  $("graphStats").textContent = `${n} commit${n === 1 ? "" : "s"} · ${g.lanes.length} lane${g.lanes.length === 1 ? "" : "s"} · ${g.merges.length} merge${g.merges.length === 1 ? "" : "s"}`;
+  if (!n) return $("graphBody").replaceChildren(el("div", { class: "placeholder" }, "No commits."));
+  const colour = i => LANE_COLOURS[i % LANE_COLOURS.length];
+  const x = lane => 12 + lane * GRAPH_COL;
+  const y = row => row * GRAPH_ROW + GRAPH_ROW / 2;
+  // The row of a revision: its commit, or the newest older one.
+  const rowOf = rev => { const i = g.commits.findIndex(c => c.rev <= rev); return i < 0 ? n - 1 : i; };
+  const rowsOfLane = g.lanes.map((_, i) => g.commits.map((c, r) => c.lane === i ? r : -1).filter(r => r >= 0));
+  const width = 24 + g.lanes.length * GRAPH_COL;
+  const svg = document.createElementNS(svgNS, "svg");
+  svg.setAttribute("width", width);
+  svg.setAttribute("height", n * GRAPH_ROW);
+  svg.setAttribute("aria-hidden", "true");
+  const add = (tag, attrs) => { const e = document.createElementNS(svgNS, tag); for (const k in attrs) e.setAttribute(k, attrs[k]); svg.append(e); return e; };
+  const curve = (x1, y1, x2, y2) => `M${x1} ${y1} C${x1} ${(y1 + y2) / 2} ${x2} ${(y1 + y2) / 2} ${x2} ${y2}`;
+  // Lanes: from the newest row (the top, if still alive) to the oldest.
+  g.lanes.forEach((l, i) => {
+    const rows = rowsOfLane[i];
+    if (!rows.length && l.to) return;
+    const top = l.to ? (rows.length ? rows[0] : rowOf(l.to)) : 0;
+    const bottom = l.from && rows.length ? rows[rows.length - 1] : n - 1;
+    add("line", { x1: x(i), y1: top === 0 && !l.to ? 0 : y(top), x2: x(i), y2: l.from ? y(bottom) : n * GRAPH_ROW, stroke: colour(i), "stroke-width": 2, opacity: 0.55 });
+    if (l.parent >= 0 && l.from) {
+      add("path", { d: curve(x(l.parent), y(rowOf(l.parentRev)), x(i), y(bottom)), fill: "none", stroke: colour(i), "stroke-width": 2, opacity: 0.55 });
+    }
+  });
+  for (const m of g.merges) {
+    add("path", { d: curve(x(m.fromLane), y(rowOf(m.fromRev)), x(m.toLane), y(rowOf(m.toRev))), fill: "none", stroke: colour(m.fromLane),
+      "stroke-width": 1.6, "stroke-dasharray": "4 3" });
+  }
+  g.commits.forEach((c, r) => add("circle", { cx: x(c.lane), cy: y(r), r: 4.5, fill: colour(c.lane), stroke: "var(--panel)", "stroke-width": 1.5 }));
+
+  const rows = el("div", { class: "rows" });
+  g.commits.forEach((c, r) => {
+    const l = g.lanes[c.lane];
+    const row = el("div", { class: "row", tabindex: r === 0 ? 0 : -1, role: "button" },
+      el("span", { class: "grev" }, "r" + c.rev),
+      el("span", { class: "lane", style: `color:${colour(c.lane)}` }, l.name),
+      ...(c.tags || []).map(t => el("span", { class: "tag", title: "tag " + t }, t)),
+      el("span", { class: "msg", title: c.message }, c.message || "(no message)"),
+      el("span", { class: "who" }, (c.author || "") + "  " + fmtDate(c.date)));
+    row.onclick = () => pickGraphRow(g, r, rows);
+    row.onkeydown = e => {
+      const to = { ArrowDown: r + 1, ArrowUp: r - 1, Home: 0, End: n - 1 }[e.key];
+      if (to !== undefined && to >= 0 && to < n) { e.preventDefault(); rows.children[to].focus(); pickGraphRow(g, to, rows); }
+      if (e.key === "Enter" || e.key === " ") { e.preventDefault(); pickGraphRow(g, r, rows); }
+    };
+    rows.append(row);
+  });
+  const legend = el("div", { class: "legend" }, ...g.lanes.map((l, i) => el("span", { style: `--c:${colour(i)}` },
+    l.name + (l.to ? " (deleted)" : ""))), el("span", { class: "muted", style: "--c:transparent" }, "- - - merge"));
+  $("graphBody").replaceChildren(legend, el("div", { class: "graph" }, svg, rows));
+}
+
+function pickGraphRow(g, r, rows) {
+  for (const x of rows.children) x.classList.remove("sel");
+  rows.children[r].classList.add("sel");
+  const c = g.commits[r], l = g.lanes[c.lane];
+  const url = state.info.repoRoot + encodePath(l.path);
+  const merges = g.merges.filter(m => m.toRev === c.rev).map(m => `merged ${g.lanes[m.fromLane].name} up to r${m.fromRev}`);
+  $("graphDetail").replaceChildren(
+    el("b", {}, "r" + c.rev), el("span", {}, `${l.name} · ${c.author || "unknown"} · ${fmtDate(c.date)}`),
+    ...(merges.length ? [el("span", { class: "muted" }, merges.join(", "))] : []),
+    el("span", { style: "flex:1" }),
+    l.to ? el("span", { class: "muted" }, "(the branch was deleted in r" + l.to + ")")
+      : el("button", { type: "button", onclick: () => { $("graphDlg").close(); flow(() => openCompare({ url, rev: c.rev, label: `r${c.rev} of ${l.name}` })); } }, "Compare…"));
+}
+
+// ---- The merge editor -----------------------------------------------------------------------------
+//
+// A conflicted text file as svn marked it: plain text, and conflicts with my
+// lines and theirs (and the original). Each conflict is decided (mine,
+// theirs, both either way, or written by hand), then the file is saved and
+// marked resolved.
+
+const ME_CHOICES = [["mine", "Mine"], ["theirs", "Theirs"], ["mine+theirs", "Mine, then theirs"], ["theirs+mine", "Theirs, then mine"], ["edit", "Edit…"]];
+let me = null; // {rel, doc, picks: Map(chunk index -> {choice, text})}
+
+async function openMergeEditor(rel) {
+  let doc;
+  try { doc = await call("MergeConflict", state.view.path, rel); } catch (e) { return report(e); }
+  me = { rel, doc, picks: new Map() };
+  $("meTitle").textContent = "Merge " + rel;
+  $("meBase").checked = false;
+  showErrIn($("meErr"), null);
+  renderMerge();
+  for (;;) {
+    const r = ask($("mergeEdDlg"));
+    nextConflict();
+    if (await r !== "ok") { me = null; return; }
+    const left = conflictsLeft();
+    if (left) { showErrIn($("meErr"), { message: `Decide each conflict first (${left} left).` }); continue; }
+    try {
+      await call("SaveMerge", state.view.path, rel, mergedText(), me.doc.eol);
+    } catch (e) { showErrIn($("meErr"), e); continue; }
+    me = null;
+    toast(`Merged ${rel} and marked it resolved. Check its diff, then commit.`, "ok");
+    await refreshWc(false);
+    const c = state.changes.find(c => c.path === rel);
+    if (c) showDiff(c);
+    return;
+  }
+}
+$("mergeFileBtn").onclick = () => state.diffPath && flow(() => openMergeEditor(state.diffPath));
+
+function linesOf(chunk, choice) {
+  switch (choice) {
+    case "mine": return chunk.mine || [];
+    case "theirs": return chunk.theirs || [];
+    case "mine+theirs": return [...(chunk.mine || []), ...(chunk.theirs || [])];
+    case "theirs+mine": return [...(chunk.theirs || []), ...(chunk.mine || [])];
+  }
+  return [];
+}
+
+function conflictsLeft() {
+  return me.doc.chunks.filter((c, i) => c.conflict && !me.picks.has(i)).length;
+}
+
+function mergedText() {
+  const out = [];
+  me.doc.chunks.forEach((c, i) => {
+    if (!c.conflict) return out.push(...c.text);
+    const p = me.picks.get(i);
+    if (p.choice === "edit") { if (p.text !== "") out.push(...p.text.replace(/\r\n/g, "\n").replace(/\n$/, "").split("\n")); }
+    else out.push(...linesOf(c, p.choice));
+  });
+  return out.join("\n") + (me.doc.final && out.length ? "\n" : "");
+}
+
+function renderMerge() {
+  const body = $("meBody");
+  const scroll = body.scrollTop;
+  body.replaceChildren();
+  const showBase = $("meBase").checked;
+  me.doc.chunks.forEach((c, i) => {
+    if (!c.conflict) {
+      const lines = c.text;
+      const box = el("div", { class: "me-text" });
+      if (lines.length > 8 && !me.picks.has("open" + i)) {
+        box.append(el("pre", {}, lines.slice(0, 3).join("\n")),
+          el("button", { type: "button", class: "ghost", onclick: () => { me.picks.set("open" + i, true); renderMerge(); } }, `… ${lines.length - 6} unchanged lines`),
+          el("pre", {}, lines.slice(-3).join("\n")));
+      } else {
+        box.append(el("pre", {}, lines.join("\n")));
+      }
+      return body.append(box);
+    }
+    const pick = me.picks.get(i);
+    const side = (cls, label, lines) => el("div", { class: "me-side " + cls + (pick && (pick.choice === cls || pick.choice.includes(cls) && pick.choice !== "edit") ? " picked" : "") },
+      el("div", { class: "lbl" }, label), el("pre", {}, lines.length ? lines.join("\n") : "(nothing)"));
+    const sides = el("div", { class: "me-sides" }, side("mine", "Mine" + (c.mineLabel ? ` (${c.mineLabel})` : ""), c.mine || []));
+    if (showBase) sides.append(side("base", "The original" + (c.base ? "" : " (not recorded)"), c.base || []));
+    sides.append(side("theirs", "Theirs" + (c.theirsLabel ? ` (${c.theirsLabel})` : ""), c.theirs || []));
+    sides.style.setProperty("--cols", showBase ? 3 : 2);
+    const choices = el("div", { class: "me-choices", role: "group", "aria-label": "Use for this conflict" });
+    for (const [v, label] of ME_CHOICES) {
+      const b = el("button", { type: "button", "aria-pressed": String(!!pick && pick.choice === v) }, label);
+      b.onclick = () => {
+        me.picks.set(i, { choice: v, text: v === "edit" ? (pick ? (pick.choice === "edit" ? pick.text : linesOf(c, pick.choice).join("\n")) : (c.mine || []).join("\n")) : "" });
+        renderMerge();
+        if (v === "edit") { const ta = $("meBody").querySelector(`[data-chunk="${i}"] textarea`); if (ta) ta.focus(); }
+      };
+      choices.append(b);
+    }
+    const box = el("div", { class: "me-conflict" + (pick ? " decided" : "") }, sides, choices);
+    box.dataset.chunk = i;
+    if (pick && pick.choice === "edit") {
+      const ta = el("textarea", { "aria-label": "Your text for this conflict", spellcheck: "false" });
+      ta.value = pick.text;
+      ta.oninput = () => { pick.text = ta.value; };
+      box.append(ta);
+    }
+    body.append(box);
+  });
+  body.scrollTop = scroll;
+  const total = me.doc.chunks.filter(c => c.conflict).length, left = conflictsLeft();
+  $("meStats").textContent = left ? `${total - left} of ${total} conflicts decided` : `All ${total} decided`;
+  $("meSave").disabled = left > 0;
+}
+$("meBase").onchange = () => me && renderMerge();
+
+// nextConflict scrolls to the first conflict not decided yet.
+function nextConflict() {
+  if (!me) return;
+  const i = me.doc.chunks.findIndex((c, j) => c.conflict && !me.picks.has(j));
+  const box = $("meBody").querySelector(`[data-chunk="${i}"]`);
+  for (const b of $("meBody").querySelectorAll(".current")) b.classList.remove("current");
+  if (box) { box.classList.add("current"); box.scrollIntoView({ block: "center" }); const f = box.querySelector("button"); if (f) f.focus(); }
+}
+$("meNext").onclick = nextConflict;
 
 // ---- Renaming and moving -----------------------------------------------------------------------
 //
@@ -3114,6 +3335,7 @@ const commands = {
   issue: () => openRepoPage("/issues/new"),
   github: () => openRepoPage(""),
   about: openAbout,
+  graph: () => flow(openGraph),
   entryMove: () => flow(entryMove),
   entryDelete: () => flow(entryDelete),
   entryCopyUrl: () => copyText(state.entry.url),

@@ -20,6 +20,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
@@ -2344,4 +2345,120 @@ func (a *App) Notify(title, body string) error {
 // SetNotify turns the new-commit notifications on or off.
 func (a *App) SetNotify(on bool) error {
 	return a.cfg.Update(func(c *config.Config) { c.NoNotify = !on })
+}
+
+// --- Merging a conflict by hand -----------------------------------------------------------
+
+// MergeDoc is a conflicted file for the merge editor.
+type MergeDoc struct {
+	Chunks []svn.Chunk `json:"chunks"`
+	EOL    string      `json:"eol"`   // the file's line ending
+	Final  bool        `json:"final"` // it ends with one
+}
+
+// MergeConflict reads a working copy file with a text conflict into plain
+// text and conflicts, for the merge editor.
+func (a *App) MergeConflict(wc, rel string) (*MergeDoc, error) {
+	p, err := inWC(wc, rel)
+	if err != nil {
+		return nil, err
+	}
+	st, err := os.Stat(p)
+	if err != nil {
+		return nil, err
+	}
+	if st.IsDir() || st.Size() > 16<<20 {
+		return nil, &appError{Kind: "other", Message: rel + " can't be merged here (a folder, or over 16 MB): keep mine or take theirs."}
+	}
+	b, err := os.ReadFile(p)
+	if err != nil {
+		return nil, err
+	}
+	if bytes.IndexByte(b[:min(len(b), 8000)], 0) >= 0 || !utf8.Valid(b) {
+		return nil, &appError{Kind: "other", Message: rel + " isn't a text file svn could mark: keep mine or take theirs."}
+	}
+	chunks, eol, final := svn.ParseConflicts(string(b))
+	if !slices.ContainsFunc(chunks, func(c svn.Chunk) bool { return c.Conflict }) {
+		return nil, &appError{Kind: "other", Message: rel + " has no conflict markers left: if it's as you want it, use \"I edited the file: mark resolved\"."}
+	}
+	return &MergeDoc{Chunks: chunks, EOL: eol, Final: final}, nil
+}
+
+// SaveMerge writes the merged text (lines joined with "\n"; written with
+// the file's own line endings) to the conflicted file and marks it
+// resolved. It refuses text that still has conflict markers.
+func (a *App) SaveMerge(wc, rel, text, eol string) error {
+	p, err := inWC(wc, rel)
+	if err != nil {
+		return err
+	}
+	if eol != "\r\n" {
+		eol = "\n"
+	}
+	text = strings.ReplaceAll(strings.ReplaceAll(text, "\r\n", "\n"), "\n", eol)
+	if chunks, _, _ := svn.ParseConflicts(text); slices.ContainsFunc(chunks, func(c svn.Chunk) bool { return c.Conflict }) {
+		return &appError{Kind: "other", Message: "The merged text still has conflict markers (<<<<<<<, =======, >>>>>>>): take them out first."}
+	}
+	st, err := os.Stat(p)
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(p, []byte(text), st.Mode().Perm()); err != nil {
+		return err
+	}
+	return a.Resolve(wc, "working", []string{rel}, false)
+}
+
+// --- The revision graph ------------------------------------------------------------------
+
+// GraphLimit is how many of the newest revisions the graph shows.
+const GraphLimit = 300
+
+// RevisionGraph is the revision graph of the working copy's project: its
+// trunk and branches as lanes, their last GraphLimit commits, branch points,
+// merges and tags.
+func (a *App) RevisionGraph(wc string) (*svn.Graph, error) {
+	c, err := a.client()
+	if err != nil {
+		return nil, err
+	}
+	host := a.wcHost(wc)
+	o := a.opts(host)
+	info, err := c.Info(a.ctx, o, wc)
+	if err != nil {
+		return nil, a.wrap(err, host)
+	}
+	l := svn.ParseLayout(info.URL)
+	if l.Kind == "" {
+		return nil, &appError{Kind: "other", Message: "This repository doesn't use trunk / branches / tags folders, so there are no branches to draw."}
+	}
+	prefix, err := url.PathUnescape(strings.TrimPrefix(l.Base, info.RepoRoot))
+	if err != nil {
+		prefix = strings.TrimPrefix(l.Base, info.RepoRoot)
+	}
+	entries, err := c.Log(a.ctx, o, l.Base, 0, GraphLimit)
+	if err != nil {
+		return nil, a.wrap(err, host)
+	}
+	g := svn.BuildGraph(prefix, entries)
+	// Merges: svn log -g of each lane (a deleted one as it was just before).
+	for i, lane := range g.Lanes {
+		if i >= 40 {
+			break
+		}
+		segs := strings.Split(lane.Path, "/")
+		for j, s := range segs {
+			segs[j] = url.PathEscape(s)
+		}
+		u := info.RepoRoot + strings.Join(segs, "/")
+		if lane.To > 0 {
+			u += "@" + strconv.Itoa(lane.To-1)
+		}
+		merged, err := c.MergedInto(a.ctx, o, u, GraphLimit)
+		if err != nil {
+			continue // a lane outside the window, or gone: no merges to draw
+		}
+		g.AddMerges(prefix, lane.Path, merged)
+	}
+	return g, nil
 }

@@ -165,3 +165,66 @@ func TestExternalsFetched(t *testing.T) {
 		t.Errorf("the external wasn't fetched: %v\n%s", err, strings.Join(lines, "\n"))
 	}
 }
+
+func TestGraph(t *testing.T) {
+	c, root, wc := newRepo(t) // r1: trunk, branches, tags
+	ctx := context.Background()
+	f := filepath.Join(wc, "f")
+	write(t, f, "a\n")
+	if err := c.Add(ctx, Opts{}, f); err != nil {
+		t.Fatal(err)
+	}
+	commit := func(msg string, paths ...string) {
+		t.Helper()
+		if _, err := c.Commit(ctx, Opts{}, msg, paths); err != nil {
+			t.Fatal(err)
+		}
+	}
+	commit("t1", f)                                                                               // r2
+	if _, err := c.Copy(ctx, Opts{}, root+"/trunk", root+"/branches/b", "branch b"); err != nil { // r3
+		t.Fatal(err)
+	}
+	if _, err := c.Copy(ctx, Opts{}, root+"/trunk", root+"/tags/v1", "tag v1"); err != nil { // r4
+		t.Fatal(err)
+	}
+	if err := c.Switch(ctx, Opts{}, wc, root+"/branches/b", nil); err != nil {
+		t.Fatal(err)
+	}
+	write(t, f, "a\nb\n")
+	commit("b work", f) // r5
+	if err := c.Switch(ctx, Opts{}, wc, root+"/trunk", nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.MergeFrom(ctx, Opts{}, root+"/branches/b", wc, nil, nil); err != nil { // everything not merged yet
+		t.Fatal(err)
+	}
+	commit("merge b", wc, f)                                                               // r6
+	if _, err := c.DeleteURL(ctx, Opts{}, root+"/branches/b", "done with b"); err != nil { // r7
+		t.Fatal(err)
+	}
+
+	log, err := c.Log(ctx, Opts{}, root, 0, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	g := BuildGraph("", log)
+	if len(g.Lanes) != 2 || g.Lanes[0].Name != "trunk" || g.Lanes[1].Name != "b" || g.Lanes[1].Parent != 0 ||
+		g.Lanes[1].ParentRev != 2 || g.Lanes[1].From != 3 || g.Lanes[1].To != 7 {
+		t.Fatalf("lanes = %+v", g.Lanes)
+	}
+	var got []string
+	for _, cm := range g.Commits {
+		got = append(got, fmt.Sprintf("r%d:%d:%s%v", cm.Rev, cm.Lane, cm.Message, cm.Tags))
+	}
+	if want := "[r7:1:done with b[] r6:0:merge b[] r5:1:b work[] r3:1:branch b[] r2:0:t1[v1] r1:0:layout[]]"; fmt.Sprint(got) != want {
+		t.Errorf("commits = %v\nwant      %s", got, want)
+	}
+	merged, err := c.MergedInto(ctx, Opts{}, root+"/trunk", 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	g.AddMerges("", "/trunk", merged)
+	if fmt.Sprint(g.Merges) != "[{1 5 0 6}]" {
+		t.Errorf("merges = %+v", g.Merges)
+	}
+}

@@ -1169,3 +1169,75 @@ func TestCommitMoves(t *testing.T) {
 		t.Errorf("folder/sub in the repository: %v, %v", l, err)
 	}
 }
+
+func TestMergeEditor(t *testing.T) {
+	a, wc := testApp(t)
+	f := filepath.Join(wc, "f.txt")
+	if err := os.WriteFile(f, []byte("one\r\ntwo\r\nthree\r\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.Commit(wc, "init", []string{"f.txt"}, CommitOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	info, _ := a.Info(wc)
+	other := filepath.Join(t.TempDir(), "other")
+	if err := a.svn.Checkout(context.Background(), svn.Opts{}, info.URL, other, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(other, "f.txt"), []byte("one\r\nTWO by them\r\nthree\r\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.svn.Commit(context.Background(), svn.Opts{}, "theirs", []string{filepath.Join(other, "f.txt")}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(f, []byte("one\r\ntwo by me\r\nthree\r\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.Update(wc); err != nil {
+		t.Fatal(err)
+	}
+	doc, err := a.MergeConflict(wc, "f.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if doc.EOL != "\r\n" || len(doc.Chunks) != 3 || !doc.Chunks[1].Conflict ||
+		fmt.Sprint(doc.Chunks[1].Mine, doc.Chunks[1].Theirs) != "[two by me] [TWO by them]" {
+		t.Fatalf("doc = %+v", doc)
+	}
+	if err := a.SaveMerge(wc, "f.txt", "one\n<<<<<<< .mine\nx\n=======\ny\n>>>>>>> .r3\n", doc.EOL); err == nil {
+		t.Error("text with markers was saved")
+	}
+	if err := a.SaveMerge(wc, "f.txt", "one\ntwo by me\nTWO by them\nthree\n", doc.EOL); err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := os.ReadFile(f); string(b) != "one\r\ntwo by me\r\nTWO by them\r\nthree\r\n" {
+		t.Errorf("saved %q", b)
+	}
+	if st := status(t, a, wc); st["f.txt"] != "modified" {
+		t.Errorf("after saving: %v (should be resolved, modified)", st)
+	}
+	if _, err := a.MergeConflict(wc, "f.txt"); err == nil {
+		t.Error("a resolved file opened in the merge editor")
+	}
+}
+
+func TestRevisionGraph(t *testing.T) {
+	a, wc, root := layoutApp(t)
+	if _, err := a.CreateBranch(wc, "branch", "feature x", "head", ""); err == nil {
+		t.Fatal("a branch name with a space was taken")
+	}
+	if _, err := a.CreateBranch(wc, "branch", "feature-x", "head", ""); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.CreateBranch(wc, "tag", "v1", "head", ""); err != nil {
+		t.Fatal(err)
+	}
+	g, err := a.RevisionGraph(wc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(g.Lanes) != 2 || g.Lanes[1].Name != "feature-x" || len(g.Commits) != 2 || fmt.Sprint(g.Commits[1].Tags) != "[v1]" {
+		t.Errorf("graph = %+v", g)
+	}
+	_ = root
+}

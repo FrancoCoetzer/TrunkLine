@@ -1,6 +1,7 @@
 package svn
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -42,5 +43,27 @@ func TestConflictMarkers(t *testing.T) {
 	found := FilesWithConflictMarkers([]string{sub, filepath.Join(dir, "clean.c"), filepath.Join(dir, "gone.c")})
 	if len(found) != 1 || !strings.HasSuffix(found[0], filepath.Join("deep", "bad.c")+":1") {
 		t.Errorf("found = %v", found)
+	}
+}
+
+func TestParseConflicts(t *testing.T) {
+	text := "a\r\nb\r\n<<<<<<< .mine\r\nmine 1\r\nmine 2\r\n||||||| .r1\r\nold\r\n=======\r\ntheirs\r\n>>>>>>> .r3\r\nc\r\n" +
+		"<<<<<<< .mine\r\n=======\r\nonly theirs\r\n>>>>>>> .r3\r\n<<<<<<< not closed\r\nd\r\n"
+	chunks, eol, final := ParseConflicts(text)
+	if eol != "\r\n" || !final {
+		t.Errorf("eol %q, final %v", eol, final)
+	}
+	want := []Chunk{
+		{Text: []string{"a", "b"}},
+		{Conflict: true, Mine: []string{"mine 1", "mine 2"}, Base: []string{"old"}, Theirs: []string{"theirs"}, MineLabel: ".mine", TheirsLabel: ".r3"},
+		{Text: []string{"c"}},
+		{Conflict: true, Theirs: []string{"only theirs"}, MineLabel: ".mine", TheirsLabel: ".r3"},
+		{Text: []string{"<<<<<<< not closed", "d"}},
+	}
+	if fmt.Sprintf("%+v", chunks) != fmt.Sprintf("%+v", want) {
+		t.Errorf("got  %+v\nwant %+v", chunks, want)
+	}
+	if c, eol, final := ParseConflicts("x\ny"); len(c) != 1 || eol != "\n" || final {
+		t.Errorf("plain: %+v %q %v", c, eol, final)
 	}
 }
