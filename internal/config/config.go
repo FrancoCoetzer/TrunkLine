@@ -36,6 +36,7 @@ type Config struct {
 	NoUpdateCheck bool              `json:"noUpdateCheck"`   // don't look for new releases automatically
 	Theme         string            `json:"theme,omitempty"` // "dark", "light", or "" to follow the system
 	Font          string            `json:"font,omitempty"`  // "regular", or "" for monospace
+	Zoom          int               `json:"zoom,omitempty"`  // the window's size in percent, or 0 for 100
 
 	mu   sync.Mutex
 	path string

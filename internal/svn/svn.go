@@ -35,6 +35,10 @@ type Opts struct {
 	// TrustCert accepts a certificate svn could not verify (self-signed, an
 	// in-house CA, a name mismatch). Set only after the user agreed.
 	TrustCert bool
+	// Dir runs svn in this folder, for output with paths relative to it.
+	// Otherwise svn runs in an empty folder: svn.exe on Windows expands
+	// wildcards in its arguments against the folder it runs in.
+	Dir string
 }
 
 // Client runs one svn binary.
@@ -177,6 +181,9 @@ func (c *Client) command(ctx context.Context, o Opts, args []string) *exec.Cmd {
 	cmd := exec.CommandContext(ctx, c.Path, o.args(args)...)
 	cmd.Env = environ()
 	cmd.Dir = emptyDir()
+	if o.Dir != "" {
+		cmd.Dir = o.Dir
+	}
 	if o.Creds.Username != "" && o.Creds.Password != "" {
 		cmd.Stdin = strings.NewReader(o.Creds.Password + "\n")
 	}

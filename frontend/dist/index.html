@@ -13,9 +13,10 @@
 <script>
   // The look saved last time, before anything paints (app.js checks it against the settings file).
   try {
-    const t = localStorage.getItem("theme"), f = localStorage.getItem("font");
+    const t = localStorage.getItem("theme"), f = localStorage.getItem("font"), z = Number(localStorage.getItem("zoom"));
     if (t === "dark" || t === "light") document.documentElement.dataset.theme = t;
     if (f === "regular") document.documentElement.dataset.font = f;
+    if (z >= 50 && z <= 200 && z !== 100) document.documentElement.style.zoom = z / 100;
   } catch { /* storage off: the default look */ }
 </script>
 <link rel="stylesheet" href="theme.css">
@@ -27,6 +28,15 @@
 
   header { display: flex; align-items: center; gap: 12px; padding: 8px 14px; border-bottom: 1px solid var(--line); background: var(--panel); }
   header .brand { font-weight: 700; letter-spacing: .5px; }
+  /* The menu bar */
+  header { gap: 6px; padding-block: 4px; }
+  header .brand { margin-right: 8px; }
+  .menubar { display: flex; gap: 2px; }
+  .menubar button { padding: 4px 9px; }
+  .menubar button u { text-decoration: none; }
+  /* The access keys show while Alt is held, as in other apps */
+  body.alt .menubar button u { text-decoration: underline; }
+  .menubar button[aria-expanded="true"] { background: var(--panel-hi); color: var(--ink); }
   header .brand b { color: var(--accent); }
   header .spacer { flex: 1; }
 
@@ -124,6 +134,11 @@
   .menu button { text-align: left; background: transparent; border-color: transparent; padding: 7px 10px; }
   .menu button:hover:not(:disabled), .menu button:focus-visible { background: var(--panel-hi); border-color: transparent; }
   .menu hr { border: none; border-top: 1px solid var(--line); margin: 4px 2px; }
+  .menu button { display: flex; align-items: baseline; gap: 24px; }
+  .menu kbd { margin-left: auto; font-family: var(--ui); font-size: 11px; color: var(--ink-dim); }
+  /* Menus with ticks keep a column for them */
+  .menu.checks button::before { content: ""; width: 1em; flex: none; margin-right: -16px; color: var(--cyan); }
+  .menu.checks button[aria-checked="true"]::before { content: "✓"; }
   .menu {
     opacity: 1; transition: opacity var(--dur-fast) var(--ease-out), translate var(--dur-fast) var(--ease-out);
     @starting-style { opacity: 0; }
@@ -163,6 +178,40 @@
   dialog .row input { flex: 1; }
   dialog .actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
   dialog p { color: var(--ink-dim); line-height: 1.5; }
+  /* Comparing: the changed files on the left, a file's diff on the right */
+  #compareDlg { width: 96vw; max-width: none; height: 92vh; padding: 0; }
+  #compareDlg form { height: 100%; gap: 0; }
+  #compareDlg .head { display: flex; align-items: center; gap: 10px; padding: 12px 16px; border-bottom: 1px solid var(--line); }
+  #compareDlg .head h3 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .cmpbody { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(220px, 30%) 1fr; }
+  .cmpbody > .scroll { overflow: auto; min-height: 0; }
+  .cmpbody > .scroll:first-child { border-right: 1px solid var(--line); }
+  /* A patch's check: one line per file */
+  .patchres { max-height: 40vh; overflow: auto; display: flex; flex-direction: column; gap: 2px; font-size: 12px; }
+  .patchres:empty { display: none; }
+  .patchres .p { display: flex; gap: 8px; }
+  .patchres .p .what { min-width: 9ch; color: var(--ink-dim); }
+  .patchres .p.bad .what, .patchres .p.bad .note { color: var(--red); }
+  .patchres .note { padding-left: calc(9ch + 8px); color: var(--ink-dim); }
+  .patchres .sum { margin-top: 6px; color: var(--ink); }
+  /* A quiet toggle (Side by side) still shows when it's on */
+  button.ghost[aria-pressed="true"] { color: var(--cyan); background: var(--cyan-tint); }
+  /* Side-by-side diffs: old on the left, new on the right */
+  table.sbs { width: 100%; table-layout: fixed; border-collapse: collapse; font-family: var(--mono); font-size: 12px; line-height: 1.45; }
+  table.sbs col.n { width: 5ch; }
+  table.sbs td { padding: 0 6px; vertical-align: top; border: none; white-space: pre-wrap; overflow-wrap: anywhere; }
+  table.sbs td.n { color: var(--ink-dim); text-align: right; user-select: none; padding: 0 4px; }
+  table.sbs td.code + td.n { border-left: 1px solid var(--line); }
+  table.sbs td.del { background: var(--red-tint); color: var(--diff-del-ink); }
+  table.sbs td.add { background: var(--green-tint); color: var(--diff-add-ink); }
+  table.sbs td.gap { background: color-mix(in oklab, var(--panel-hi) 50%, transparent); }
+  table.sbs tr.full td { white-space: pre; overflow: hidden; text-overflow: ellipsis; }
+  table.sbs tr.meta td { color: var(--ink-dim); }
+  table.sbs tr.hunk td { color: var(--cyan); background: var(--cyan-tint); }
+  table.sbs tr.hunk:not(:first-child) td { border-top: 6px solid transparent; background-clip: padding-box; }
+  table.sbs tr.padd td { color: var(--diff-add-ink); background: var(--green-tint); }
+  table.sbs tr.pdel td { color: var(--diff-del-ink); background: var(--red-tint); }
+  .diff:has(> table.sbs) { white-space: normal; padding: 8px 0; }
   /* Blame */
   #blameDlg { width: 96vw; max-width: none; height: 92vh; padding: 0; }
   #blameDlg form { height: 100%; gap: 0; }
@@ -276,17 +325,63 @@
   .banner .row { display: flex; gap: 6px; }
   #aboutDlg dl { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; }
   #aboutDlg dt { color: var(--ink-dim); }
-  #aboutDlg fieldset.look { border: 1px solid var(--line); border-radius: var(--radius); padding: 8px 10px 10px; display: grid; grid-template-columns: auto 1fr; gap: 8px 10px; align-items: center; }
-  #aboutDlg fieldset.look legend { color: var(--ink-dim); padding: 0 4px; }
+  fieldset.look { border: 1px solid var(--line); border-radius: var(--radius); padding: 8px 10px 10px; display: grid; grid-template-columns: auto 1fr; gap: 8px 10px; align-items: center; }
+  fieldset.look legend { color: var(--ink-dim); padding: 0 4px; }
+  table.keys { width: 100%; }
+  table.keys td { padding: 4px 6px; border-bottom: 1px solid var(--line); }
+  table.keys td:first-child { white-space: nowrap; color: var(--cyan); width: 1%; }
+  table.keys tr.head td { color: var(--ink-dim); font-weight: 600; padding-top: 10px; border-bottom-color: var(--line-strong); }
   #aboutDlg dd { margin: 0; overflow-wrap: anywhere; }
 </style>
 </head>
 <body>
 <header>
   <span class="brand">Trunk<b>Line</b></span>
+  <!-- The menu bar: Alt+F, Alt+V, Alt+H open a menu; ←/→ move between menus, ↑/↓ within one -->
+  <nav class="menubar" role="menubar" aria-label="Menu">
+    <button role="menuitem" class="ghost" id="mbFile" popovertarget="menuFile" aria-haspopup="menu" aria-expanded="false" aria-keyshortcuts="Alt+F"><u>F</u>ile</button>
+    <button role="menuitem" class="ghost" id="mbView" popovertarget="menuView" aria-haspopup="menu" aria-expanded="false" aria-keyshortcuts="Alt+V"><u>V</u>iew</button>
+    <button role="menuitem" class="ghost" id="mbHelp" popovertarget="menuHelp" aria-haspopup="menu" aria-expanded="false" aria-keyshortcuts="Alt+H"><u>H</u>elp</button>
+  </nav>
+  <div id="menuFile" class="menu" role="menu" aria-labelledby="mbFile" popover>
+    <button role="menuitem" data-cmd="addWc">Add a working copy…</button>
+    <button role="menuitem" data-cmd="addServer">Add a repository…</button>
+    <hr>
+    <button role="menuitem" data-cmd="prefs">Preferences…<kbd>Ctrl+,</kbd></button>
+    <hr>
+    <button role="menuitem" data-cmd="quit">Quit<kbd>Ctrl+Q</kbd></button>
+  </div>
+  <div id="menuView" class="menu checks" role="menu" aria-labelledby="mbView" popover>
+    <button role="menuitemradio" data-cmd="tab" data-tab="changes" data-wc>Changes<kbd>Ctrl+1</kbd></button>
+    <button role="menuitemradio" data-cmd="tab" data-tab="history" data-wc>History<kbd>Ctrl+2</kbd></button>
+    <button role="menuitemradio" data-cmd="tab" data-tab="branches" data-wc>Branches<kbd>Ctrl+3</kbd></button>
+    <button role="menuitemradio" data-cmd="tab" data-tab="locks" data-wc>Locks<kbd>Ctrl+4</kbd></button>
+    <hr>
+    <button role="menuitemcheckbox" data-cmd="unversioned" data-wc>Show unversioned files</button>
+    <button role="menuitemcheckbox" data-cmd="sbs">Side-by-side diffs</button>
+    <button role="menuitem" data-cmd="refresh">Refresh<kbd>F5</kbd></button>
+    <hr>
+    <button role="menuitemradio" data-cmd="theme" data-theme="system">Theme: follow the system</button>
+    <button role="menuitemradio" data-cmd="theme" data-theme="dark">Theme: dark</button>
+    <button role="menuitemradio" data-cmd="theme" data-theme="light">Theme: light</button>
+    <hr>
+    <button role="menuitem" data-cmd="zoomIn">Zoom in<kbd>Ctrl+=</kbd></button>
+    <button role="menuitem" data-cmd="zoomOut">Zoom out<kbd>Ctrl+−</kbd></button>
+    <button role="menuitem" data-cmd="zoomReset">Actual size<kbd>Ctrl+0</kbd></button>
+  </div>
+  <div id="menuHelp" class="menu" role="menu" aria-labelledby="mbHelp" popover>
+    <button role="menuitem" data-cmd="keys">Keyboard shortcuts<kbd>F1</kbd></button>
+    <hr>
+    <button role="menuitem" data-cmd="checkUpdate">Check for updates…</button>
+    <button role="menuitem" data-cmd="releases">What's new (releases)</button>
+    <button role="menuitem" data-cmd="issue">Report a problem…</button>
+    <button role="menuitem" data-cmd="github">TrunkLine on GitHub</button>
+    <hr>
+    <button role="menuitem" data-cmd="about">About TrunkLine</button>
+  </div>
   <span id="svnChip" class="chip err" hidden>svn missing</span>
   <span class="spacer"></span>
-  <button class="ghost" id="version" title="About TrunkLine, its look, and updates"></button>
+  <button class="ghost" id="version" title="About TrunkLine and updates"></button>
 </header>
 
 <div id="busyBar" class="indeterminate" aria-hidden="true"></div>
@@ -344,6 +439,10 @@
           <button id="browseWcBtn">Browse the repository</button>
           <button id="openWcBtn">Open the folder</button>
           <button id="propsTopBtn" title="svn properties of the working copy's top folder: ignore lists, externals…">Properties of the top folder</button>
+          <hr>
+          <button id="savePatchBtn" title="Write the ticked changes to a .patch file, for someone else to apply">Save ticked changes as a patch…</button>
+          <button id="applyPatchBtn" title="Bring the changes in a .patch file into this working copy">Apply a patch…</button>
+          <hr>
           <button id="cleanupBtn" title="svn cleanup: release a working copy locked by an interrupted operation">Clean up (after an interrupted operation)</button>
           <hr>
           <button class="danger" id="removeWcBtn" title="The files stay on disk">Remove from the list</button>
@@ -393,7 +492,7 @@
         </div>
         <div class="pane">
           <div class="toolbar"><span id="diffTitle" class="muted">Pick a file to see its changes</span>
-            <span style="flex:1"></span><button class="ghost" id="propsFileBtn" hidden title="svn properties: line endings, needs-lock, ignore lists…">Properties</button><button class="ghost" id="historyFileBtn" hidden title="The commits that changed this file">History</button><button class="ghost" id="blameFileBtn" hidden title="Who last changed each line">Blame</button><button class="ghost" id="openFileBtn" hidden>Open file</button></div>
+            <span style="flex:1"></span><button class="ghost sbsBtn" aria-pressed="false" title="Old and new next to each other (View menu)">Side by side</button><button class="ghost" id="propsFileBtn" hidden title="svn properties: line endings, needs-lock, ignore lists…">Properties</button><button class="ghost" id="historyFileBtn" hidden title="The commits that changed this file">History</button><button class="ghost" id="blameFileBtn" hidden title="Who last changed each line">Blame</button><button class="ghost" id="openFileBtn" hidden>Open file</button></div>
           <div class="scroll"><div id="diff" class="diff"></div></div>
         </div>
       </div>
@@ -545,7 +644,16 @@
     <dt>svn</dt><dd id="aboutSvn"></dd>
     <dt>Updates</dt><dd id="aboutUpdate">Not checked yet</dd>
   </dl>
-  <label style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="aboutAuto"> Check for updates automatically</label>
+
+  <div class="actions">
+    <button type="button" id="aboutRepo">GitHub page</button>
+    <button type="button" id="aboutCheck">Check for updates</button>
+    <button value="cancel">Close</button>
+  </div>
+</form></dialog>
+
+<dialog id="prefsDlg"><form method="dialog">
+  <h3>Preferences</h3>
   <fieldset class="look">
     <legend>Look</legend>
     <label for="lookTheme">Theme</label>
@@ -559,12 +667,64 @@
       <option value="mono">Monospace</option>
       <option value="regular">Regular (code stays monospace)</option>
     </select>
+    <label for="lookZoom">Size</label>
+    <select id="lookZoom"></select>
   </fieldset>
-  <div class="actions">
-    <button type="button" id="aboutRepo">GitHub page</button>
-    <button type="button" id="aboutCheck">Check for updates</button>
+  <fieldset class="look">
+    <legend>Updates</legend>
+    <label style="display:flex;gap:6px;align-items:center;grid-column:1/-1"><input type="checkbox" id="prefsAuto"> Check for new versions automatically</label>
+  </fieldset>
+  <p class="muted">Changes apply straight away.</p>
+  <div class="actions"><button value="cancel">Close</button></div>
+</form></dialog>
+
+<dialog id="cmpPickDlg"><form method="dialog">
+  <h3>Compare</h3>
+  <p id="cmpFrom"></p>
+  <div class="field"><label for="cmpWith">With</label><select id="cmpWith"></select></div>
+  <div class="field" id="cmpRevRow" hidden><label for="cmpRev">Revision number</label>
+    <input id="cmpRev" inputmode="numeric" pattern="[0-9]+" placeholder="e.g. 120" autocomplete="off"></div>
+  <div class="actions"><button value="cancel" formnovalidate>Cancel</button><button class="primary" value="ok">Compare</button></div>
+</form></dialog>
+
+<dialog id="compareDlg"><form method="dialog">
+  <div class="head">
+    <h3 id="compareTitle"></h3><span style="flex:1"></span>
+    <span class="muted" id="compareStats"></span>
+    <button type="button" class="sbsBtn" aria-pressed="false" title="Old and new next to each other">Side by side</button>
+    <button type="button" id="compareSwap" title="Show the changes the other way round">⇄ Swap</button>
     <button value="cancel">Close</button>
   </div>
+  <div class="cmpbody">
+    <div class="scroll"><table class="list" aria-label="Changed files"><tbody id="compareList"></tbody></table></div>
+    <div class="scroll"><div id="compareDiff" class="diff"></div></div>
+  </div>
+</form></dialog>
+
+<dialog id="patchSaveDlg"><form method="dialog">
+  <h3>Save as a patch</h3>
+  <p>A patch file holds these changes, so someone can apply them to their working copy of the same folder (TrunkLine's Apply a patch, svn patch, or TortoiseSVN). Your working copy stays as it is.</p>
+  <p id="patchFiles" style="white-space:pre-wrap"></p>
+  <div class="field"><label for="patchFile">Save as</label>
+    <div class="row"><input id="patchFile" autocomplete="off" spellcheck="false"><button type="button" id="patchChoose">Choose…</button></div></div>
+  <p class="err-text" id="patchSaveErr" role="alert" hidden></p>
+  <div class="actions"><button value="cancel" formnovalidate>Cancel</button><button class="primary" value="ok">Save</button></div>
+</form></dialog>
+
+<dialog id="patchApplyDlg" style="width:min(640px,94vw)"><form method="dialog">
+  <h3>Apply a patch</h3>
+  <p>The changes in a patch file go into this working copy as local changes, for you to review and commit. Parts that don't fit your files are saved next to them as .svnpatch.rej files.</p>
+  <div class="field"><label for="patchIn">Patch file</label>
+    <div class="row"><input id="patchIn" autocomplete="off" spellcheck="false"><button type="button" id="patchInChoose">Choose…</button></div></div>
+  <div id="patchPreview" class="patchres" aria-live="polite"></div>
+  <p class="err-text" id="patchApplyErr" role="alert" hidden></p>
+  <div class="actions"><button value="cancel" formnovalidate>Cancel</button><button type="button" id="patchCheck" title="See what the patch would change, without changing anything (Enter)">Check</button><button class="primary" value="ok">Apply</button></div>
+</form></dialog>
+
+<dialog id="keysDlg" style="width:min(560px,94vw)"><form method="dialog">
+  <h3>Keyboard shortcuts</h3>
+  <table class="keys"><tbody id="keysList"></tbody></table>
+  <div class="actions"><button value="cancel">Close</button></div>
 </form></dialog>
 
 <dialog id="branchDlg"><form method="dialog">
@@ -575,6 +735,7 @@
   <div class="field"><label>Copy from</label>
     <label style="display:flex;gap:6px;align-items:center"><input type="radio" name="branchFrom" value="head" checked> <span id="branchFromHead"></span></label>
     <label style="display:flex;gap:6px;align-items:center"><input type="radio" name="branchFrom" value="wc"> <span id="branchFromWc"></span></label>
+    <label style="display:flex;gap:6px;align-items:center" id="branchFromRevRow" hidden><input type="radio" name="branchFrom" value="rev"> <span id="branchFromRev"></span></label>
   </div>
   <div class="field"><label for="branchMsg">Commit message</label><input id="branchMsg"></div>
   <label style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="branchSwitch"> Switch my working copy to it afterwards</label>

@@ -36,7 +36,19 @@ that works the same on both, built with Go and [Wails](https://wails.io/).
   next to Blame). Search it by message, author or changed path. Click a
   revision to see its message and files, and a file to see what that revision
   changed in it. **Undo this commit** takes a revision's changes back out, as
-  local changes to check and commit.
+  local changes to check and commit. **Tag this revision…** makes a tag (a
+  release, say) of the code as it was then.
+- **Compare**: from a revision in History, or any trunk, branch or tag on the
+  Branches tab, compare with another revision, the latest, or another branch
+  or tag ("what changed since v1.0?"). A window lists the changed files; pick
+  one for its diff. Swap turns the comparison round.
+- **Patches** (⋯ menu): save the ticked changes as a `.patch` file to send
+  someone, or apply one you were sent. Applying checks first and says which
+  files it would change and which parts won't fit; those are saved next to
+  their file as `.svnpatch.rej`. Patches carry new and deleted files, binary
+  files and property changes, and also work with `svn patch` and TortoiseSVN.
+- **Side-by-side diffs** (View menu, or the button above a diff): old and new
+  next to each other with line numbers, everywhere diffs are shown.
 - **Branches**: the Branches tab lists trunk, branches and tags with their
   last change, and the header shows which one you're on. Switch between them
   (your local changes come along; a conflict this causes is pointed out),
@@ -75,9 +87,13 @@ that works the same on both, built with Go and [Wails](https://wails.io/).
   (a checkout over it, like TortoiseSVN's "import in place"), so you keep
   working where you were. To take a friend's project into your own repo,
   export it from theirs, then import that folder into yours.
-- **Look** (click the version number, top right): a dark or light pastel
-  theme, or follow the system's setting; a monospace or regular font (diffs,
-  blame and file contents stay monospace).
+- **Menus** along the top: File (add a working copy or repository,
+  Preferences, Quit), View (tabs, unversioned files, theme, zoom) and Help
+  (keyboard shortcuts, updates, reporting a problem, About). Alt+F, Alt+V and
+  Alt+H open them from the keyboard; F1 lists every shortcut.
+- **Preferences** (File menu, or Ctrl+,): a dark or light pastel theme, or
+  follow the system's setting; a monospace or regular font (diffs, blame and
+  file contents stay monospace); the size (zoom); automatic update checks.
 - **Logins**: when a server asks for one, a login dialog opens and the
   operation is retried. The password is kept for the session only and handed
   to svn on stdin. svn caches it too if a secure store is set up (GNOME
@@ -154,9 +170,8 @@ banner. `make dist TAG=v9.9.9` builds the same files locally for testing.
 ## Status
 
 Early days: the everyday workflow (checkout, update, commit, history, browse,
-export, import) works and is tested against real repositories. Not yet there:
-side-by-side diffs. Bug reports and pull
-requests are welcome.
+export, import) works and is tested against real repositories. Bug reports
+and pull requests are welcome.
 
 ## License
 

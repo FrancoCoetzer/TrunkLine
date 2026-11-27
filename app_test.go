@@ -862,22 +862,104 @@ func TestDiffFolderOnly(t *testing.T) {
 
 func TestSetLook(t *testing.T) {
 	a, _ := testApp(t)
-	if s := a.Startup(); s.Theme != "system" || s.Font != "mono" {
-		t.Errorf("default look = %q, %q", s.Theme, s.Font)
+	if s := a.Startup(); s.Theme != "system" || s.Font != "mono" || s.Zoom != 100 {
+		t.Errorf("default look = %q, %q, %d", s.Theme, s.Font, s.Zoom)
 	}
-	if err := a.SetLook("light", "regular"); err != nil {
+	if err := a.SetLook("light", "regular", 125); err != nil {
 		t.Fatal(err)
 	}
-	if s := a.Startup(); s.Theme != "light" || s.Font != "regular" {
-		t.Errorf("look = %q, %q", s.Theme, s.Font)
+	if s := a.Startup(); s.Theme != "light" || s.Font != "regular" || s.Zoom != 125 {
+		t.Errorf("look = %q, %q, %d", s.Theme, s.Font, s.Zoom)
 	}
-	if err := a.SetLook("pink", "mono"); err == nil {
+	if err := a.SetLook("pink", "mono", 100); err == nil {
 		t.Error("an unknown theme was saved")
 	}
-	if err := a.SetLook("system", "mono"); err != nil {
+	if err := a.SetLook("dark", "mono", 400); err == nil {
+		t.Error("a zoom of 400% was saved")
+	}
+	if err := a.SetLook("system", "mono", 100); err != nil {
 		t.Fatal(err)
 	}
-	if s := a.Startup(); s.Theme != "system" || s.Font != "mono" {
-		t.Errorf("back to the default: %q, %q", s.Theme, s.Font)
+	if s := a.Startup(); s.Theme != "system" || s.Font != "mono" || s.Zoom != 100 {
+		t.Errorf("back to the default: %q, %q, %d", s.Theme, s.Font, s.Zoom)
+	}
+}
+
+func TestSaveAndApplyPatch(t *testing.T) {
+	a, wc := testApp(t)
+	put(t, filepath.Join(wc, "src", "main.c"))
+	if _, err := a.Commit(wc, "src", []string{"src"}, CommitOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	info, _ := a.Info(wc)
+	other := filepath.Join(t.TempDir(), "other")
+	if err := a.svn.Checkout(context.Background(), svn.Opts{}, info.URL, other, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(wc, "src", "main.c"), []byte("x\nmore\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	put(t, filepath.Join(wc, "notes.txt")) // new, not added: left out
+	file := filepath.Join(t.TempDir(), "my.patch")
+
+	if _, err := a.SavePatch(wc, []string{"src/main.c"}, "my.patch", false); err == nil || !strings.Contains(err.Error(), "full path") {
+		t.Errorf("relative file: %v", err)
+	}
+	if _, err := a.SavePatch(wc, []string{"notes.txt"}, file, false); err == nil || !strings.Contains(err.Error(), "Add") {
+		t.Errorf("only a new file: %v", err)
+	}
+	saved, err := a.SavePatch(wc, []string{"src/main.c", "notes.txt"}, file, false)
+	if err != nil || saved.Files != 1 || fmt.Sprint(saved.Skipped) != "[notes.txt]" {
+		t.Fatalf("SavePatch = %+v, %v", saved, err)
+	}
+	if _, err := a.SavePatch(wc, []string{"src/main.c"}, file, false); err == nil || !strings.Contains(err.Error(), `"exists"`) {
+		t.Errorf("saving over a file without overwrite: %v", err)
+	}
+	if _, err := a.SavePatch(wc, []string{"src/main.c"}, file, true); err != nil {
+		t.Errorf("overwrite: %v", err)
+	}
+
+	res, err := a.ApplyPatch(other, file, false)
+	if err != nil || len(res) != 1 || res[0].Path != "src/main.c" || res[0].Action != "updated" {
+		t.Fatalf("ApplyPatch = %+v, %v", res, err)
+	}
+	if b, _ := os.ReadFile(filepath.Join(other, "src", "main.c")); string(b) != "x\nmore\n" {
+		t.Errorf("applied: %q", b)
+	}
+	if _, err := a.ApplyPatch(other, filepath.Join(t.TempDir(), "none.patch"), true); err == nil || !strings.Contains(err.Error(), "doesn't exist") {
+		t.Errorf("missing patch file: %v", err)
+	}
+}
+
+func TestTagAtRevisionAndCompare(t *testing.T) {
+	a, wc, root := layoutApp(t)
+	put(t, filepath.Join(wc, "f.txt")) // r2
+	if _, err := a.Commit(wc, "f", []string{"f.txt"}, CommitOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(wc, "f.txt"), []byte("changed\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.Commit(wc, "change", []string{"f.txt"}, CommitOptions{}); err != nil {
+		t.Fatal(err) // r3
+	}
+	// A tag of trunk as it was at r2 (before the change).
+	if _, err := a.CreateBranch(wc, "tag", "v1", "r2", ""); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.CreateBranch(wc, "tag", "v2", "rx", ""); err == nil {
+		t.Error("a bad revision was taken")
+	}
+	ch, err := a.Compare(root+"/tags/v1", 0, root+"/trunk", 0)
+	if err != nil || fmt.Sprint(ch) != "[{f.txt modified none file}]" {
+		t.Fatalf("Compare = %v, %v", ch, err)
+	}
+	d, err := a.CompareDiff(root+"/tags/v1", 0, root+"/trunk", 0, "f.txt", "modified")
+	if err != nil || !strings.Contains(d, "+changed") {
+		t.Errorf("CompareDiff = %q, %v", d, err)
+	}
+	// The same folder at two revisions.
+	if ch, err := a.Compare(root+"/trunk", 2, root+"/trunk", 3); err != nil || len(ch) != 1 {
+		t.Errorf("by revision = %v, %v", ch, err)
 	}
 }

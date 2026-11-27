@@ -457,28 +457,117 @@ function clearBanner() {
 }
 $("wcBannerClose").onclick = clearBanner;
 
-// ---- The "More" menu of the working copy bar ---------------------------------------------------
+// ---- Menus: the menu bar and the ⋯ menu of the working copy bar ----------------------------------
+//
+// A menu is a popover of buttons under its trigger button. ↑/↓, Home and End
+// move between its items (disabled ones skipped); Esc closes it.
 
-$("wcMenu").addEventListener("beforetoggle", e => {
-  if (e.newState !== "open") return;
-  // Place it under its button, right edges lined up, before it shows.
-  const r = $("wcMenuBtn").getBoundingClientRect();
-  $("wcMenu").style.top = Math.round(r.bottom + 4) + "px";
-  $("wcMenu").style.right = Math.round(document.documentElement.clientWidth - r.right) + "px";
+// zoomScale is how many of getBoundingClientRect's pixels a fixed element's
+// CSS pixel (top, left…) becomes, which the page zoom changes, and engines
+// count differently: so it's measured.
+function zoomScale() {
+  const probe = el("div", { style: "position:fixed;top:100px;left:0;width:1px;height:1px;visibility:hidden" });
+  document.body.append(probe);
+  const z = probe.getBoundingClientRect().top / 100;
+  probe.remove();
+  return z > 0 ? z : 1;
+}
+
+function menuItems(menu) { return [...menu.querySelectorAll("button")].filter(b => !b.disabled); }
+
+// setupMenu wires menu to its trigger btn; align "left" or "right" lines up
+// that edge of the menu with the button's.
+function setupMenu(menu, btn, align) {
+  menu.addEventListener("beforetoggle", e => {
+    if (e.newState !== "open") return;
+    if (menu._prepare) menu._prepare();
+    const r = btn.getBoundingClientRect(), z = zoomScale();
+    menu.style.top = Math.round((r.bottom + 4) / z) + "px";
+    if (align === "left") {
+      menu.style.left = Math.round(r.left / z) + "px";
+      menu.style.right = "auto";
+    } else {
+      menu.style.right = Math.round((document.documentElement.getBoundingClientRect().right - r.right) / z) + "px";
+      menu.style.left = "auto";
+    }
+  });
+  menu.addEventListener("toggle", e => {
+    const open = e.newState === "open";
+    btn.setAttribute("aria-expanded", open ? "true" : "false");
+    if (open && (menu._focusFirst || btn.matches(":focus-visible"))) {
+      const first = menuItems(menu)[0];
+      if (first) first.focus();
+    }
+    // Closed from the keyboard (Esc, or an item): focus goes back to the button.
+    if (!open && menu._focusFirst !== undefined && (menu.contains(document.activeElement) || document.activeElement === document.body)) btn.focus();
+    menu._focusFirst = open ? menu._focusFirst : undefined;
+  });
+  menu.addEventListener("click", e => {
+    const b = e.target.closest("button");
+    if (!b || b.disabled) return;
+    menu.hidePopover();
+    if (b.dataset.cmd && commands[b.dataset.cmd]) commands[b.dataset.cmd](b);
+  });
+  menu.addEventListener("keydown", e => {
+    if (menu._bar !== undefined && (e.key === "ArrowRight" || e.key === "ArrowLeft")) {
+      e.preventDefault();
+      openBarMenu(menu._bar + (e.key === "ArrowRight" ? 1 : -1), true);
+      return;
+    }
+    const items = menuItems(menu);
+    const i = items.indexOf(document.activeElement);
+    const to = { ArrowDown: (i + 1) % items.length, ArrowUp: (i - 1 + items.length) % items.length, Home: 0, End: items.length - 1 }[e.key];
+    if (to === undefined || i < 0) return;
+    e.preventDefault();
+    items[to].focus();
+  });
+}
+setupMenu($("wcMenu"), $("wcMenuBtn"), "right");
+
+// The menu bar: File, View, Help.
+const BAR = [["mbFile", "menuFile"], ["mbView", "menuView"], ["mbHelp", "menuHelp"]];
+BAR.forEach(([b, m], i) => {
+  setupMenu($(m), $(b), "left");
+  $(m)._bar = i;
+  // With one menu open, pointing at another opens that one instead.
+  $(b).addEventListener("pointerenter", () => {
+    if (BAR.some(([, o]) => o !== m && $(o).matches(":popover-open"))) openBarMenu(i, false);
+  });
 });
-$("wcMenu").addEventListener("toggle", e => {
-  $("wcMenuBtn").setAttribute("aria-expanded", e.newState === "open" ? "true" : "false");
-  if (e.newState === "open" && $("wcMenuBtn").matches(":focus-visible")) $("wcMenu").querySelector("button").focus();
-});
-$("wcMenu").addEventListener("click", e => { if (e.target.closest("button")) $("wcMenu").hidePopover(); });
-$("wcMenu").addEventListener("keydown", e => {
-  const items = [...$("wcMenu").querySelectorAll("button")];
-  const i = items.indexOf(document.activeElement);
-  const to = { ArrowDown: (i + 1) % items.length, ArrowUp: (i - 1 + items.length) % items.length, Home: 0, End: items.length - 1 }[e.key];
-  if (to === undefined || i < 0) return;
+
+// openBarMenu opens the i-th menu of the menu bar (wrapping around); focus
+// puts the keyboard on its first item.
+function openBarMenu(i, focus) {
+  const [b, m] = BAR[(i + BAR.length) % BAR.length];
+  for (const [, o] of BAR) if (o !== m && $(o).matches(":popover-open")) { $(o)._focusFirst = undefined; $(o).hidePopover(); }
+  $(m)._focusFirst = focus;
+  if (!$(m).matches(":popover-open")) $(m).showPopover();
+  else if (focus) { const f = menuItems($(m))[0]; if (f) f.focus(); }
+  if (!focus) $(b).focus({ preventScroll: true });
+}
+
+// The View menu shows what's on: the tab, unversioned files, the theme.
+$("menuView")._prepare = () => {
+  const wc = !!(state.view && state.view.type === "wc");
+  for (const b of $("menuView").querySelectorAll("[data-wc]")) b.disabled = !wc;
+  for (const b of $("menuView").querySelectorAll('[data-cmd="tab"]')) b.setAttribute("aria-checked", String(wc && currentTab() === b.dataset.tab));
+  $("menuView").querySelector('[data-cmd="unversioned"]').setAttribute("aria-checked", String($("showUnversioned").checked));
+  $("menuView").querySelector('[data-cmd="sbs"]').setAttribute("aria-checked", String(sideBySide()));
+  for (const b of $("menuView").querySelectorAll('[data-cmd="theme"]')) b.setAttribute("aria-checked", String(look.theme === b.dataset.theme));
+  $("menuView").querySelector('[data-cmd="refresh"]').disabled = !state.view;
+};
+
+// Alt+F, Alt+V, Alt+H open the menus; holding Alt underlines those letters.
+document.addEventListener("keydown", e => {
+  document.body.classList.toggle("alt", e.key === "Alt");
+  if (!e.altKey || e.ctrlKey || e.metaKey || e.shiftKey || modalOpen()) return;
+  const i = { f: 0, v: 1, h: 2 }[e.key.toLowerCase()];
+  if (i === undefined) return;
   e.preventDefault();
-  items[to].focus();
+  openBarMenu(i, true);
 });
+document.addEventListener("keyup", () => document.body.classList.remove("alt"));
+window.addEventListener("blur", () => document.body.classList.remove("alt"));
 
 // The "N incoming" chip asks the server again.
 $("wcIncoming").onclick = () => busy($("wcIncoming"), () => refreshWc(true));
@@ -791,12 +880,14 @@ $("showUnversioned").onchange = () => {
 const MAX_DIFF_LINES = 20000;
 
 function renderDiff(target, text) {
+  target._diffText = text; // to draw it again when switching side by side on or off
   target.replaceChildren();
   if (!text || !text.trim()) {
     target.append(el("div", { class: "placeholder" }, "No text changes to show."));
     return;
   }
   const lines = text.split(/\r?\n/); // files with Windows line endings: no stray \r on each line
+  if (sideBySide() && lines.some(l => l.startsWith("@@ "))) return renderSideBySide(target, lines);
   const frag = document.createDocumentFragment();
   for (const l of lines.slice(0, MAX_DIFF_LINES)) {
     let cls = "";
@@ -809,6 +900,79 @@ function renderDiff(target, text) {
   }
   if (lines.length > MAX_DIFF_LINES) frag.append(el("div", { class: "meta" }, `… ${lines.length - MAX_DIFF_LINES} more lines not shown`));
   target.append(frag);
+}
+
+// ---- Side-by-side diffs ------------------------------------------------------------------------
+//
+// The same unified diff, drawn as old (left) and new (right) with line
+// numbers: removed and added lines in a run are paired up row by row.
+// Headers and property changes stay full width.
+
+function sideBySide() { return store("sbs") === "1"; }
+
+function setSideBySide(on) {
+  store("sbs", on ? "1" : "0");
+  for (const b of document.querySelectorAll(".sbsBtn")) b.setAttribute("aria-pressed", String(on));
+  // Redraw the diffs on show (not one still loading, or cleared).
+  for (const d of document.querySelectorAll(".diff")) {
+    if (d._diffText !== undefined && d.childElementCount && !d.querySelector(":scope > .placeholder")) renderDiff(d, d._diffText);
+  }
+}
+for (const b of document.querySelectorAll(".sbsBtn")) {
+  b.setAttribute("aria-pressed", String(sideBySide()));
+  b.onclick = () => setSideBySide(!sideBySide());
+}
+
+function renderSideBySide(target, lines) {
+  const body = el("tbody");
+  let inHunk = false, inProps = false, o = 0, n = 0, dels = [], adds = [];
+  const full = (cls, text) => body.append(el("tr", { class: "full " + cls }, el("td", { colspan: 4 }, text)));
+  const row = (left, right) => body.append(el("tr", {},
+    el("td", { class: "n" }, left ? String(o++) : ""),
+    el("td", { class: "code " + (left ? left.cls : "gap") }, left ? left.text : ""),
+    el("td", { class: "n" }, right ? String(n++) : ""),
+    el("td", { class: "code " + (right ? right.cls : "gap") }, right ? right.text : "")));
+  const flush = () => {
+    for (let i = 0; i < Math.max(dels.length, adds.length); i++) {
+      row(i < dels.length ? { text: dels[i], cls: "del" } : null, i < adds.length ? { text: adds[i], cls: "add" } : null);
+    }
+    dels = [];
+    adds = [];
+  };
+  for (const l of lines.slice(0, MAX_DIFF_LINES)) {
+    const m = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(l);
+    if (m) {
+      flush();
+      o = Number(m[1]);
+      n = Number(m[2]);
+      inHunk = true;
+      inProps = false;
+      full("hunk", l);
+    } else if (/^(Index: |diff --git |Property changes on|====|___|Cannot display)/.test(l)) {
+      flush();
+      inHunk = false;
+      inProps = l.startsWith("Property changes on");
+      full("meta", l);
+    } else if (!inHunk || inProps) {
+      flush();
+      full(inProps && l.startsWith("+") ? "padd" : inProps && l.startsWith("-") ? "pdel" : "meta", l);
+    } else if (l.startsWith("-")) {
+      dels.push(l.slice(1));
+    } else if (l.startsWith("+")) {
+      adds.push(l.slice(1));
+    } else if (l.startsWith("\\")) {
+      flush();
+      full("meta", l); // \ No newline at end of file
+    } else if (l !== "") {
+      flush();
+      const t = l.slice(1);
+      row({ text: t, cls: "" }, { text: t, cls: "" });
+    }
+  }
+  flush();
+  if (lines.length > MAX_DIFF_LINES) full("meta", `… ${lines.length - MAX_DIFF_LINES} more lines not shown`);
+  target.append(el("table", { class: "sbs" },
+    el("colgroup", {}, el("col", { class: "n" }), el("col"), el("col", { class: "n" }), el("col")), body));
 }
 
 async function showDiff(ch) {
@@ -1123,6 +1287,247 @@ $("propsAdd").onchange = () => {
 $("propsFileBtn").onclick = () => state.diffPath && openProps(state.diffPath);
 $("propsTopBtn").onclick = () => state.view && openProps(".");
 
+// ---- Comparing ---------------------------------------------------------------------------------
+//
+// What differs between two places in the repository: two tags, a branch and
+// trunk, or one folder (or file) at two revisions. The compare window lists
+// the changed files; picking one shows its diff.
+
+// repoLabel shows a repository URL from the repository root (^/trunk).
+function repoLabel(url) {
+  const root = state.info && state.info.repoRoot;
+  return readable(root && url.startsWith(root) ? "^" + url.slice(root.length) : url);
+}
+function branchLabel(br) { return br.kind === "trunk" ? "trunk" : `${br.kind} ${br.name}`; }
+
+// openCompare asks what to compare from ({url, rev (0: the latest), label}) with.
+async function openCompare(from) {
+  const isFile = !!(state.historyFile && from.url === state.historyFile.url);
+  if (!isFile && state.view && state.view.type === "wc" && !state.branches) await loadBranches();
+  const opts = [];
+  if (from.rev) opts.push({ value: "head", label: `The latest ${repoLabel(from.url)}`, to: { url: from.url, rev: 0, label: `the latest ${repoLabel(from.url)}` } });
+  opts.push({ value: "rev", label: `Another revision of ${repoLabel(from.url)}…` });
+  if (!isFile && state.branches) {
+    state.branches.branches.forEach((br, i) => {
+      if (br.url === from.url) return; // itself (its latest is offered above)
+      opts.push({ value: "br" + i, label: branchLabel(br) + (br.current ? " (your working copy is on it)" : ""), to: { url: br.url, rev: 0, label: branchLabel(br) } });
+    });
+  }
+  $("cmpFrom").textContent = `Compare ${from.label} with:`;
+  $("cmpWith").replaceChildren(...opts.map(o => el("option", { value: o.value }, o.label)));
+  const showRev = () => { $("cmpRevRow").hidden = $("cmpWith").value !== "rev"; };
+  $("cmpWith").onchange = () => { showRev(); if (!$("cmpRevRow").hidden) $("cmpRev").focus(); };
+  $("cmpRev").value = "";
+  showRev();
+  for (;;) {
+    const r = ask($("cmpPickDlg"));
+    $("cmpWith").focus();
+    if (await r !== "ok") return;
+    const pick = opts.find(o => o.value === $("cmpWith").value);
+    let to = pick && pick.to;
+    if ($("cmpWith").value === "rev") {
+      const n = Number($("cmpRev").value.trim().replace(/^r/i, ""));
+      if (!Number.isInteger(n) || n < 1) { toast("Type a revision number, like 120."); continue; }
+      to = { url: from.url, rev: n, label: `r${n} of ${repoLabel(from.url)}` };
+    }
+    if (!to) return;
+    // One place at two revisions: older first, so additions show as added.
+    if (to.url === from.url && from.rev && to.rev && to.rev < from.rev) return showCompare(to, from);
+    return showCompare(from, to);
+  }
+}
+
+let cmp = null; // on show: {a, b, changes}
+
+async function showCompare(a, b) {
+  cmp = { a, b, changes: null };
+  $("compareTitle").textContent = `${a.label}  →  ${b.label}`;
+  $("compareTitle").title = `Changes from ${a.label} to ${b.label}`;
+  $("compareStats").textContent = "";
+  $("compareList").replaceChildren(el("tr", {}, el("td", { class: "placeholder" }, "Asking the server…")));
+  $("compareDiff").replaceChildren();
+  if (!$("compareDlg").open) ask($("compareDlg")).then(() => { cmp = null; });
+  try {
+    const ch = await call("Compare", a.url, a.rev, b.url, b.rev);
+    if (!cmp || cmp.a !== a) return;
+    cmp.changes = ch;
+    renderCompare();
+  } catch (e) {
+    if (cmp && cmp.a === a) $("compareList").replaceChildren(el("tr", {}, el("td", { class: "placeholder" }, parseErr(e).message)));
+  }
+}
+
+function renderCompare() {
+  const tb = $("compareList");
+  tb.replaceChildren();
+  const files = cmp.changes;
+  $("compareStats").textContent = files.length === 1 ? "1 change" : files.length + " changes";
+  if (!files.length) {
+    tb.append(el("tr", {}, el("td", { class: "placeholder" }, "No differences.")));
+    $("compareDiff").replaceChildren();
+    return;
+  }
+  for (const c of files) {
+    const letter = { added: "A", deleted: "D", modified: "M", replaced: "R" }[c.item] || (c.props === "modified" ? "P" : "");
+    const cls = { added: "added", deleted: "deleted", modified: "modified", replaced: "replaced" }[c.item] || "props";
+    const name = c.path || cmp.a.label;
+    const tr = el("tr", { onclick: () => showCompareDiff(c) },
+      el("td", {}, el("span", { class: "st st-" + cls, title: c.item === "none" ? "properties changed" : c.item }, letter)),
+      el("td", { class: "path", title: name }, name + (c.kind === "dir" ? "/" : "")));
+    tr.dataset.key = c.path;
+    tr._move = () => showCompareDiff(c);
+    tb.append(tr);
+  }
+  rovingRows(tb, false);
+  showCompareDiff(files[0]);
+}
+
+async function showCompareDiff(c) {
+  const at = cmp;
+  for (const tr of $("compareList").children) tr.classList.toggle("sel", tr.dataset.key === c.path);
+  if (c.kind === "dir" && c.item !== "none" && c.item !== "modified") {
+    $("compareDiff").replaceChildren(el("div", { class: "placeholder" }, `Folder ${c.item}.`));
+    return;
+  }
+  $("compareDiff").replaceChildren(el("div", { class: "placeholder" }, "Loading…"));
+  at.sel = c.path;
+  try {
+    const d = await call("CompareDiff", at.a.url, at.a.rev, at.b.url, at.b.rev, c.path, c.item);
+    if (cmp === at && at.sel === c.path) renderDiff($("compareDiff"), d);
+  } catch (e) {
+    if (cmp === at && at.sel === c.path) $("compareDiff").replaceChildren(el("div", { class: "placeholder" }, parseErr(e).message));
+  }
+}
+$("compareSwap").onclick = () => { if (cmp) showCompare(cmp.b, cmp.a); };
+
+// tagAt makes a tag of the working copy's trunk or branch as it was at rev.
+async function tagAt(rev) {
+  if (!state.branches) await loadBranches();
+  if (!state.branches) return;
+  if (!state.branches.layout.kind) return toast("This repository doesn't use trunk / branches / tags folders, so TrunkLine doesn't know where tags go.");
+  await newBranch("tag", rev);
+}
+
+// ---- Patches -----------------------------------------------------------------------------------
+//
+// Save ticked changes to a .patch file for someone else, or apply one to
+// this working copy (svn patch). The patch's paths start at the working
+// copy, so it applies to any working copy of the same folder.
+
+function showErrIn(p, e) {
+  p.textContent = e ? parseErr(e).message : "";
+  p.hidden = !e;
+}
+
+function defaultPatchFile() {
+  const name = (state.view.path.split(/[\\/]/).filter(Boolean).pop() || "changes").replace(/[^\w.-]+/g, "-");
+  return (state.startup.home || "") + sep() + name + "-changes.patch";
+}
+
+$("savePatchBtn").onclick = async () => {
+  const sel = checkedChanges();
+  if (!sel.length) return toast("Tick the changes to put in the patch first.");
+  const fresh = sel.filter(c => c.item === "unversioned");
+  $("patchFiles").textContent = sel.slice(0, 10).map(c => "  " + c.path + (c.item === "unversioned" ? "  (new: Add it first to include it)" : "")).join("\n") +
+    (sel.length > 10 ? `\n  … and ${sel.length - 10} more` : "") +
+    (fresh.length ? `\n\nNew files go in a patch once they're added (Add).` : "");
+  if (!$("patchFile").value) $("patchFile").value = defaultPatchFile();
+  showErrIn($("patchSaveErr"), null);
+  for (;;) {
+    const r = ask($("patchSaveDlg"));
+    $("patchFile").focus();
+    if (await r !== "ok") return;
+    const file = $("patchFile").value.trim(), paths = sel.map(c => c.path);
+    let res;
+    try {
+      try {
+        res = await call("SavePatch", state.view.path, paths, file, false);
+      } catch (e) {
+        if (parseErr(e).kind !== "exists") throw e;
+        if (!await confirmDanger("Replace the file?", `${file} already exists. Replace it with this patch?`, "Replace")) continue;
+        res = await call("SavePatch", state.view.path, paths, file, true);
+      }
+    } catch (e) { showErrIn($("patchSaveErr"), e); continue; }
+    const n = res.files === 1 ? "1 file" : res.files + " files";
+    toast(`Saved ${n} to ${res.file}.` + (res.skipped.length ? ` Left out (new, not added yet): ${res.skipped.join(", ")}.` : ""), "ok");
+    return;
+  }
+};
+$("patchChoose").onclick = async () => {
+  try {
+    const p = await call("PickSaveFile", "Save the patch as", $("patchFile").value.split(/[\\/]/).pop() || "changes.patch");
+    if (p) $("patchFile").value = p;
+  } catch (e) { showErrIn($("patchSaveErr"), e); }
+};
+
+const PATCH_WHAT = { added: "new file", deleted: "delete", updated: "change", merged: "already in", conflict: "won't fit", skipped: "skipped" };
+
+// showPatchResult lists what svn patch did, or with dry would do.
+function showPatchResult(res, dry) {
+  const box = $("patchPreview");
+  box.replaceChildren();
+  for (const p of res) {
+    const what = PATCH_WHAT[p.action] || (p.props ? "properties" : "");
+    const bad = p.rejected || p.action === "skipped";
+    box.append(el("div", { class: "p" + (bad ? " bad" : "") }, el("span", { class: "what" }, what), el("span", {}, p.path)));
+    if (p.action === "skipped") box.append(el("div", { class: "note" }, "not in this working copy: was the patch made from another folder?"));
+    for (const n of p.notes || []) if (/rejected|fuzz/.test(n)) box.append(el("div", { class: "note" }, n));
+  }
+  const rejected = res.filter(p => p.rejected).length, skipped = res.filter(p => p.action === "skipped").length;
+  const ok = res.length - rejected - skipped;
+  box.append(el("div", { class: "sum" }, (dry ? `${ok} of ${res.length} would go in cleanly.` : `${ok} of ${res.length} went in cleanly.`) +
+    (rejected ? ` ${rejected} won't fit: those parts go in .svnpatch.rej files.` : "") +
+    (skipped ? ` ${skipped} skipped.` : "")));
+}
+
+async function checkPatch() {
+  const file = $("patchIn").value.trim();
+  if (!file) return;
+  showErrIn($("patchApplyErr"), null);
+  $("patchPreview").replaceChildren(el("div", { class: "muted" }, "Checking…"));
+  try {
+    showPatchResult(await call("ApplyPatch", state.view.path, file, true), true);
+  } catch (e) {
+    $("patchPreview").replaceChildren();
+    showErrIn($("patchApplyErr"), e);
+  }
+}
+$("patchCheck").onclick = checkPatch;
+$("patchIn").addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); checkPatch(); } });
+// Not on "change": that fires when focus leaves for the Apply button, and the
+// preview redrawing then moves the button from under the pointer.
+$("patchInChoose").onclick = async () => {
+  try {
+    const p = await call("PickPatchFile", "Choose a patch to apply");
+    if (p) { $("patchIn").value = p; checkPatch(); }
+  } catch (e) { showErrIn($("patchApplyErr"), e); }
+};
+
+$("applyPatchBtn").onclick = async () => {
+  $("patchPreview").replaceChildren();
+  showErrIn($("patchApplyErr"), null);
+  if ($("patchIn").value) checkPatch();
+  for (;;) {
+    const r = ask($("patchApplyDlg"));
+    $("patchIn").focus();
+    if (await r !== "ok") return;
+    let res;
+    try {
+      res = await call("ApplyPatch", state.view.path, $("patchIn").value.trim(), false);
+    } catch (e) { showErrIn($("patchApplyErr"), e); continue; }
+    await refreshWc(false);
+    const bad = res.filter(p => p.rejected), skipped = res.filter(p => p.action === "skipped");
+    if (bad.length || skipped.length) {
+      setBanner("conflict", "The patch only partly went in." +
+        (bad.length ? ` Some changes to ${bad.map(p => p.path).join(", ")} didn't fit the file as it is: they're saved next to it as ${bad.length === 1 ? "a .svnpatch.rej file" : ".svnpatch.rej files"}. Make those changes by hand, then delete the .rej ${bad.length === 1 ? "file" : "files"}.` : "") +
+        (skipped.length ? ` Skipped (not in this working copy): ${skipped.map(p => p.path).join(", ")}.` : ""));
+    } else {
+      toast(`Applied the patch: ${res.length === 1 ? "1 file" : res.length + " files"} changed. Review them, then commit.`, "ok");
+    }
+    return;
+  }
+};
+
 // ---- Working copy buttons ----------------------------------------------------------------
 
 // ---- Incoming changes: "Update (3)" ----------------------------------------------------------
@@ -1205,13 +1610,10 @@ $("browseWcBtn").onclick = () => {
   if (state.info) openBrowse(state.info.repoRoot, state.info.url, null);
 };
 
-document.addEventListener("keydown", e => {
-  if (e.key === "F5") {
-    e.preventDefault();
-    if (state.view && state.view.type === "wc") refreshWc(state.incoming);
-    else if (state.view && state.view.type === "browse") listBrowse();
-  }
-});
+function refreshView() {
+  if (state.view && state.view.type === "wc") refreshWc(state.incoming);
+  else if (state.view && state.view.type === "browse") listBrowse();
+}
 
 // ---- Tabs and history ------------------------------------------------------------------------
 
@@ -1369,6 +1771,12 @@ function showRevision(e) {
     el("pre", {}, e.message || "(no message)"),
     el("div", { class: "row" },
       el("button", { onclick: () => pick(null, root + "@" + e.revision, e.revision) }, "Show all changes"),
+      " ",
+      el("button", { title: "Compare this revision with another, the latest, or a branch or tag",
+        onclick: () => flow(() => openCompare({ url: logTarget(), rev: e.revision, label: `r${e.revision} of ${repoLabel(logTarget())}` })) }, "Compare…"),
+      " ",
+      el("button", { title: "Make a tag (e.g. a release) of the code as it was at this revision",
+        onclick: () => flow(() => tagAt(e.revision)) }, "Tag this revision…"),
       " ",
       el("button", { class: "danger", title: "Take this commit's changes back out of your working copy, to review and commit",
         onclick: () => flow(() => undoRevision(e)) }, "Undo this commit")),
@@ -1772,6 +2180,8 @@ function renderBranches() {
   const kinds = { trunk: "trunk", branch: "branch", tag: "tag" };
   for (const br of b.branches) {
     const actions = el("td", { class: "actions" });
+    actions.append(el("button", { onclick: () => flow(() => openCompare({ url: br.url, rev: 0, label: branchLabel(br) })),
+      title: `What differs between ${branchLabel(br)} and another branch, tag or revision` }, "Compare…"));
     if (br.current) {
       actions.append(el("span", { class: "chip info" }, "you are here"));
     } else {
@@ -1841,7 +2251,9 @@ async function deleteBranch(br) {
   await loadBranches();
 }
 
-async function newBranch(kind) {
+// newBranch asks for a new branch or tag's name and makes it; atRev, when
+// given, copies the code as it was at that revision (from the History tab).
+async function newBranch(kind, atRev) {
   const b = state.branches;
   const from = b.branches.find(x => x.current);
   const fromName = from ? from.name : b.layout.name;
@@ -1851,7 +2263,9 @@ async function newBranch(kind) {
     : `A copy of ${fromName} to work on separately. Making it is quick and keeps the history.`;
   $("branchFromHead").textContent = `the latest on the server`;
   $("branchFromWc").textContent = `my working copy's revision (r${b.revision})`;
-  document.querySelector('input[name="branchFrom"][value="head"]').checked = true;
+  $("branchFromRevRow").hidden = !atRev;
+  if (atRev) $("branchFromRev").textContent = `revision r${atRev} (picked in the history)`;
+  document.querySelector(`input[name="branchFrom"][value="${atRev ? "rev" : "head"}"]`).checked = true;
   $("branchName").value = "";
   $("branchMsg").value = "";
   $("branchSwitch").checked = kind === "branch";
@@ -1866,7 +2280,8 @@ async function newBranch(kind) {
   $("branchName").focus();
   if (await r !== "ok") return;
   const name = $("branchName").value.trim();
-  const fromWhere = document.querySelector('input[name="branchFrom"]:checked').value;
+  let fromWhere = document.querySelector('input[name="branchFrom"]:checked').value;
+  if (fromWhere === "rev") fromWhere = "r" + atRev;
   let rev;
   try {
     rev = await call("CreateBranch", state.view.path, kind, name, fromWhere, $("branchMsg").value.trim());
@@ -2203,16 +2618,16 @@ function describeUpdate(info) {
   return info.latest ? `Up to date (latest release: ${info.latest})` : "No releases published yet";
 }
 
-$("version").onclick = async () => {
+async function openAbout() {
   const s = state.startup;
   const kind = await Go().InstallKind();
   $("aboutVersion").textContent = `${s.version} (${{ deb: ".deb package", windows: "Windows setup", source: "built from source" }[kind] || kind})`;
   $("aboutSvn").textContent = s.svnError ? "not found" : `${s.svnVersion} (${s.svnPath})`;
-  $("aboutAuto").checked = s.updateCheck;
-  ask($("aboutDlg"));
-};
-$("aboutAuto").onchange = async () => {
-  const on = $("aboutAuto").checked;
+  if (!$("aboutDlg").open) ask($("aboutDlg"));
+}
+$("version").onclick = openAbout;
+$("prefsAuto").onchange = async () => {
+  const on = $("prefsAuto").checked;
   try {
     await Go().SetUpdateCheck(on);
     state.startup.updateCheck = on;
@@ -2233,7 +2648,7 @@ $("aboutRepo").onclick = async () => Go().OpenReleasePage(await Go().RepoURL()).
 // Buttons that open a dialog or start a long action: one at a time (flow).
 for (const id of ["addWcBtn", "welcomeWc", "addServerBtn", "welcomeServer", "revertBtn", "ignoreBtn", "removeWcBtn",
   "removeServerBtn", "checkoutHereBtn", "exportHereBtn", "importHereBtn", "newBranchBtn", "newTagBtn", "relocateBtn",
-  "switchUrlBtn", "lockBtn", "lockPickBtn", "unlockBtn", "updateInstall", "updateBtn"]) {
+  "switchUrlBtn", "lockBtn", "lockPickBtn", "unlockBtn", "updateInstall", "updateBtn", "savePatchBtn", "applyPatchBtn"]) {
   const handler = $(id).onclick;
   if (handler) $(id).onclick = e => flow(() => handler(e));
 }
@@ -2246,15 +2661,37 @@ for (const id of ["addWcBtn", "welcomeWc", "addServerBtn", "welcomeServer", "rev
 // localStorage, which the script in index.html's <head> reads to apply it
 // before anything paints.
 
-function applyLook(theme, font) {
+const ZOOMS = [50, 67, 75, 80, 90, 100, 110, 125, 150, 175, 200];
+const look = { theme: "system", font: "mono", zoom: 100 };
+$("lookZoom").append(...ZOOMS.map(z => el("option", { value: z }, z + "%")));
+
+function applyLook() {
   const root = document.documentElement;
-  if (theme === "dark" || theme === "light") root.dataset.theme = theme; else delete root.dataset.theme;
-  if (font === "regular") root.dataset.font = font; else delete root.dataset.font;
-  store("theme", theme);
-  store("font", font);
-  $("lookTheme").value = theme;
-  $("lookFont").value = font;
+  if (look.theme === "dark" || look.theme === "light") root.dataset.theme = look.theme; else delete root.dataset.theme;
+  if (look.font === "regular") root.dataset.font = look.font; else delete root.dataset.font;
+  root.style.zoom = look.zoom === 100 ? "" : String(look.zoom / 100);
+  store("theme", look.theme);
+  store("font", look.font);
+  store("zoom", String(look.zoom));
+  $("lookTheme").value = look.theme;
+  $("lookFont").value = look.font;
+  $("lookZoom").value = String(look.zoom);
   syncWindowColour();
+}
+
+// setLook changes some of theme, font and zoom, shows it, and saves it.
+async function setLook(change) {
+  Object.assign(look, change);
+  applyLook();
+  try { await call("SetLook", look.theme, look.font, look.zoom); } catch (e) { report(e); }
+}
+
+// stepZoom moves one step up (1) or down (-1) the zoom levels.
+function stepZoom(dir) {
+  const i = ZOOMS.findIndex(z => z >= look.zoom);
+  const next = ZOOMS[Math.min(ZOOMS.length - 1, Math.max(0, (i < 0 ? ZOOMS.length - 1 : i) + dir))];
+  if (next !== look.zoom) setLook({ zoom: next });
+  toast(`Size ${next}%`);
 }
 
 // syncWindowColour gives the window behind the page (seen while it opens or
@@ -2265,16 +2702,95 @@ function syncWindowColour() {
 }
 matchMedia("(prefers-color-scheme: light)").addEventListener("change", syncWindowColour);
 
-$("lookTheme").onchange = $("lookFont").onchange = async () => {
-  const theme = $("lookTheme").value, font = $("lookFont").value;
-  applyLook(theme, font);
-  try { await call("SetLook", theme, font); } catch (e) { report(e); }
+$("lookTheme").onchange = () => setLook({ theme: $("lookTheme").value });
+$("lookFont").onchange = () => setLook({ font: $("lookFont").value });
+$("lookZoom").onchange = () => setLook({ zoom: Number($("lookZoom").value) });
+
+function openPrefs() {
+  applyLook();
+  $("prefsAuto").checked = state.startup.updateCheck;
+  if (!$("prefsDlg").open) ask($("prefsDlg"));
+}
+
+// ---- Keyboard shortcuts ------------------------------------------------------------------------
+
+const SHORTCUTS = [
+  ["Anywhere"],
+  ["Alt+F, Alt+V, Alt+H", "Open the File, View or Help menu (then ← → ↑ ↓)"],
+  ["Ctrl+,", "Preferences"],
+  ["F1", "This list"],
+  ["F5", "Refresh"],
+  ["Ctrl+= / Ctrl+− / Ctrl+0", "Bigger, smaller, actual size"],
+  ["Esc", "Close a dialog, menu or message"],
+  ["Ctrl+Q", "Quit"],
+  ["In a working copy"],
+  ["Ctrl+1 … Ctrl+4", "Changes, History, Branches, Locks"],
+  ["Ctrl+Enter", "Commit (in the message box)"],
+  ["In a list"],
+  ["↑ ↓ Home End", "Move (shows the diff or the revision)"],
+  ["Space", "Tick or untick"],
+  ["Enter", "Open the file"],
+];
+function showKeys() {
+  $("keysList").replaceChildren(...SHORTCUTS.map(([k, what]) => what
+    ? el("tr", {}, el("td", {}, k), el("td", {}, what))
+    : el("tr", { class: "head" }, el("td", { colspan: 2 }, k))));
+  if (!$("keysDlg").open) ask($("keysDlg"));
+}
+
+// ---- Menu commands and their shortcuts --------------------------------------------------------
+
+async function quitApp() {
+  if ((inFlight > 0 || flowRunning) && !await confirmDanger("Quit while svn is working?",
+    "An svn command is still running. Quitting now stops it, which can leave the working copy needing a clean up.", "Quit")) return;
+  window.runtime.Quit();
+}
+
+async function openRepoPage(path) {
+  try { await Go().OpenReleasePage(await Go().RepoURL() + path); } catch (e) { report(e); }
+}
+
+const commands = {
+  addWc: () => $("addWcBtn").onclick(),
+  addServer: () => $("addServerBtn").onclick(),
+  prefs: openPrefs,
+  quit: quitApp,
+  tab: b => { if (state.view && state.view.type === "wc") setTab(b.dataset.tab); },
+  unversioned: () => $("showUnversioned").click(),
+  sbs: () => setSideBySide(!sideBySide()),
+  refresh: refreshView,
+  theme: b => setLook({ theme: b.dataset.theme }),
+  zoomIn: () => stepZoom(1),
+  zoomOut: () => stepZoom(-1),
+  zoomReset: () => { setLook({ zoom: 100 }); toast("Size 100%"); },
+  keys: showKeys,
+  checkUpdate: async () => { await openAbout(); $("aboutCheck").click(); },
+  releases: () => openRepoPage("/releases"),
+  issue: () => openRepoPage("/issues/new"),
+  github: () => openRepoPage(""),
+  about: openAbout,
 };
+
+document.addEventListener("keydown", e => {
+  const ctrl = (e.ctrlKey || e.metaKey) && !e.altKey;
+  let cmd = null;
+  if (e.key === "F1" && !modalOpen()) cmd = "keys";
+  else if (e.key === "F5" && !modalOpen()) cmd = "refresh";
+  else if (ctrl && (e.key === "=" || e.key === "+")) cmd = "zoomIn";
+  else if (ctrl && (e.key === "-" || e.key === "_")) cmd = "zoomOut";
+  else if (ctrl && e.key === "0") cmd = "zoomReset";
+  else if (ctrl && !e.shiftKey && e.key === "," && !modalOpen()) cmd = "prefs";
+  else if (ctrl && !e.shiftKey && e.key.toLowerCase() === "q") cmd = "quit";
+  if (!cmd) return;
+  e.preventDefault();
+  commands[cmd]();
+});
 
 async function start() {
   const s = await Go().Startup();
   state.startup = s;
-  applyLook(s.theme, s.font);
+  Object.assign(look, { theme: s.theme, font: s.font, zoom: s.zoom });
+  applyLook();
   state.wcs = s.workingCopies;
   state.servers = s.servers;
   $("version").textContent = s.version;
