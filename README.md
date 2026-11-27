@@ -218,7 +218,7 @@ banner. `make dist TAG=v9.9.9` builds the same files locally for testing.
 | `internal/svn` | runs `svn` and parses its `--xml` output |
 | `internal/update` | checks GitHub releases, downloads, verifies and installs updates |
 | `internal/config` | saved settings: `~/.config/trunkline/config.json` (`%AppData%\trunkline` on Windows) |
-| `frontend/dist` | `index.html`, `app.js`, and `theme.css` |
+| `frontend/dist` | `index.html`, `theme.css`, and `js/`: the page's scripts, one per area (`js/core.js` first) |
 | `docs` | [usage.md](docs/usage.md) (how to use the app) and the README's screenshots |
 | `packaging` | the icon, `dist.sh` (release files), the .deb and .rpm, the Windows setup (NSIS) and .msi (wixl) |
 | `.github/workflows` | CI, and the release build |

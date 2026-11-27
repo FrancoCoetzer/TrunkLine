@@ -21,7 +21,7 @@ import (
 )
 
 // cliActions are the actions the command line takes, in the order the help
-// lists them. The page starts each one (runAction in app.js).
+// lists them. The page starts each one (runAction in js/start.js).
 var cliActions = []struct{ name, help string }{
 	{"open", "open the working copy (the default: trunkline <path>)"},
 	{"commit", "the Changes tab with these files ticked, ready for a message"},

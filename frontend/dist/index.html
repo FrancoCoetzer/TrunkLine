@@ -3,7 +3,7 @@
   TrunkLine's window. Plain HTML/JS, no build step.
   Go methods are bound as window.go.main.App.<Method>() (each returns a
   Promise); events come through window.runtime.EventsOn. Wails injects both.
-  The logic is in app.js; the colours and controls are in theme.css.
+  The logic is in js/ (one script per area, js/core.js first); the colours and controls are in theme.css.
 -->
 <html lang="en">
 <head>
@@ -11,7 +11,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>TrunkLine</title>
 <script>
-  // The look saved last time, before anything paints (app.js checks it against the settings file).
+  // The look saved last time, before anything paints (js/start.js checks it against the settings file).
   try {
     const t = localStorage.getItem("theme"), f = localStorage.getItem("font"), z = Number(localStorage.getItem("zoom"));
     if (t === "dark" || t === "light") document.documentElement.dataset.theme = t;
@@ -294,7 +294,7 @@
   table.blame td.code { white-space: pre; }
   #progLog { font-family: var(--mono); height: 260px; overflow: auto; background: var(--bg); border: 1px solid var(--line); border-radius: var(--radius); padding: 6px 8px; white-space: pre; font-size: 12px; }
 
-  /* Messages: a stack in the bottom right. They wait while a dialog is open (see toast() in app.js). */
+  /* Messages: a stack in the bottom right. They wait while a dialog is open (see toast() in js/core.js). */
   #toasts { position: fixed; right: 16px; bottom: 16px; z-index: 10; display: flex; flex-direction: column; align-items: flex-end;
     gap: 8px; max-width: min(560px, calc(100vw - 32px)); pointer-events: none; }
   .toast { pointer-events: auto; display: flex; align-items: flex-start; gap: 8px; padding: 10px 8px 10px 14px; border-radius: var(--radius-lg);
@@ -313,7 +313,7 @@
      stay); colour highlights stay too (they're not motion). Selection, ticking, typing, focus and
      showing a diff stay instant. No script ever waits for a transition or animation to end
      (transitionend, getAnimations): a webview that isn't painting holds those back, as with the
-     dialog close event (see ask() in app.js). */
+     dialog close event (see ask() in js/core.js). */
 
   /* Dialogs: fade (and rise a little) in. Closing animates only where the dialog can stay in the top
      layer while it fades (overlay: Chromium/WebView2); elsewhere it closes at once, cleanly. */
@@ -370,7 +370,7 @@
   .navitem { transition: background-color var(--dur-fast), border-color var(--dur-fast); }
 
   /* Waiting on svn or the server: a thin bar sliding along the top (a slow pulse with reduced motion).
-     It appears only after 150ms, so quick actions don't flicker it (see call() in app.js). */
+     It appears only after 150ms, so quick actions don't flicker it (see call() in js/core.js). */
   .indeterminate { height: 2px; overflow: hidden; position: relative; background: transparent; }
   .indeterminate::before { content: ""; position: absolute; inset: 0 auto 0 0; width: 35%; background: var(--cyan); opacity: 0; }
   .indeterminate.on::before { opacity: 1; }
@@ -971,6 +971,24 @@
 <div id="toasts" role="region" aria-label="Notifications"></div>
 <div class="sr-only" id="announcePolite" aria-live="polite"></div>
 <div class="sr-only" id="announceAlert" aria-live="assertive"></div>
-<script src="app.js"></script>
+<!-- The page's scripts, in order: classic scripts sharing one global scope (js/core.js explains). -->
+<script src="js/core.js"></script>
+<script src="js/sidebar.js"></script>
+<script src="js/workingcopy.js"></script>
+<script src="js/diffs.js"></script>
+<script src="js/commit.js"></script>
+<script src="js/properties.js"></script>
+<script src="js/compare.js"></script>
+<script src="js/patches.js"></script>
+<script src="js/graph.js"></script>
+<script src="js/mergeeditor.js"></script>
+<script src="js/files.js"></script>
+<script src="js/history.js"></script>
+<script src="js/repository.js"></script>
+<script src="js/branches.js"></script>
+<script src="js/locks.js"></script>
+<script src="js/blame.js"></script>
+<script src="js/updates.js"></script>
+<script src="js/start.js"></script>
 </body>
 </html>

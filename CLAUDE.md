@@ -8,6 +8,9 @@ how to build it; this file is what to keep in mind while changing it.
 TrunkLine: an open-source (GPL v3) Go + Wails v2 desktop SVN client for Linux
 and Windows. The frontend is plain HTML/JS in `frontend/dist` with no build
 step; the Makefile stamps the version.
+The page's scripts are `frontend/dist/js/*.js`, one per area, loaded in order by
+`index.html` as classic scripts sharing one global scope (not modules): code
+that runs while a file loads may only use what earlier files define.
 
 ## Build and test
 
@@ -32,7 +35,7 @@ rebuild after editing `frontend/dist`.
   `--trust-server-cert-failures`, only for hosts the user trusted.
 - **Errors are classified by svn's error codes** (`E170001`, ...), not by
   message text (`internal/svn/svn.go`, `newError`). `app.go` turns them into
-  JSON (`appError`); `app.js`'s `call()` shows a login or trust dialog for
+  JSON (`appError`); `call()` (`js/core.js`) shows a login or trust dialog for
   `auth`/`cert` and retries. A new prompt-like failure gets a Kind there.
 - **svn's messages are forced to English** (`environ()`), but the character
   set is kept, so non-ASCII file names still work. Don't set `LC_ALL=C`.
@@ -42,7 +45,7 @@ rebuild after editing `frontend/dist`.
   root, with `/`. `app.go` joins them onto the root.
 - Passwords are never written to disk by the app (`internal/config` stores
   usernames only).
-- **Dialogs**: `ask()` in `app.js` resolves on the form's submit and the
+- **Dialogs**: `ask()` in `js/core.js` resolves on the form's submit and the
   dialog's cancel, not the `close` event (a webview that isn't painting can
   hold that back). Keep it that way.
 - This is a public repo: no company names, internal hostnames or paths.
@@ -68,7 +71,7 @@ rebuild after editing `frontend/dist`.
 
 - **Command line** (`cli.go`): `trunkline <action> <paths>`, which the file
   manager menus will run too. Each action in `cliActions` has a case in
-  `runAction` (`app.js`); add both together. Actions end where the user would
+  `runAction` (`js/start.js`); add both together. Actions end where the user would
   have got to by hand and never skip a confirmation (revert asks, commit waits
   for the message). One window: a second launch hands its arguments over
   (`SingleInstanceLock`); dev builds use their own `instanceID`.
