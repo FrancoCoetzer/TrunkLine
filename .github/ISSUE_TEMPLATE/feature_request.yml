@@ -1,0 +1,20 @@
+name: Feature request
+description: Suggest something TrunkLine should do
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to do?
+      description: The task or problem, rather than the button you'd like.
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: How could TrunkLine help?
+  - type: textarea
+    id: elsewhere
+    attributes:
+      label: How do you do it today?
+      description: With the svn command line, TortoiseSVN or another client, if you do.

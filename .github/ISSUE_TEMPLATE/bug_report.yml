@@ -1,0 +1,55 @@
+name: Bug report
+description: Something in TrunkLine doesn't work as it should
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open a working copy
+        2. ...
+  - type: textarea
+    id: message
+    attributes:
+      label: svn's message
+      description: The error TrunkLine showed, if any. Remove server names or paths you'd rather not share.
+      render: text
+  - type: input
+    id: version
+    attributes:
+      label: TrunkLine version
+      description: Help, About
+      placeholder: v0.6.0
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - Windows (x64)
+        - Windows (ARM)
+        - Ubuntu / Debian
+        - Fedora / openSUSE
+        - Other Linux
+    validations:
+      required: true
+  - type: input
+    id: svn
+    attributes:
+      label: svn version
+      description: "`svn --version --quiet`, and where it comes from (TortoiseSVN, SlikSVN, apt, ...)"
+      placeholder: 1.14.3 (TortoiseSVN)
+  - type: input
+    id: server
+    attributes:
+      label: How do you reach the repository?
+      placeholder: https, svn://, svn+ssh://, file://
