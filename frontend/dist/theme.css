@@ -1,10 +1,12 @@
-/* TrunkLine's theme. Dark only: near-black slate panels, monospace.
+/* TrunkLine's theme. Dark only: dusk-violet panels, pastel colours, monospace.
 
-   Colours have one meaning everywhere:
-     --accent  amber  the main action of a group (button.primary), modified, busy, a warning
-     --cyan    cyan   selected or toggled on, info, incoming changes, keyboard focus
-     --green   green  healthy: added, connected, done
-     --red     red    a conflict, a failure, a refusal, danger
+   Colours have one meaning everywhere (the names are older than the pastels):
+     --accent  peach       the main action of a group (button.primary), modified, busy, a warning
+     --cyan    periwinkle  selected or toggled on, info, incoming changes, keyboard focus
+     --green   mint        healthy: added, connected, done
+     --red     rose        a conflict, a failure, a refusal, danger
+   Every text colour is at least 5.9:1 on every panel (4.5:1 is the minimum); pastels are close in
+   lightness, so a meaning never rests on colour alone (status letters, labels). 
    Page code may use the tokens and the classes below; nothing here needs a page to change its markup.
 
    Everything is inside @layer theme, so any page rule without a layer wins over it: a page keeps only its own
@@ -13,10 +15,10 @@
 @layer reset, theme;
 @layer theme {
   :root {
-    --bg: #090d13;
-    --panel: #131922;
-    --panel-hi: #1c2432;
-    --line: #243042;
+    --bg: #16151f;
+    --panel: #1e1d2a;
+    --panel-hi: #282736;
+    --line: #34324a;
     /* Motion: short, and only opacity and small movements. See the Motion section in index.html. */
     --dur-fast: 120ms;   /* hover, press, small state changes */
     --dur-base: 160ms;   /* things appearing: dialogs, messages */
@@ -25,27 +27,27 @@
     --ease-out: cubic-bezier(.2, .8, .2, 1);
     --ease-in: cubic-bezier(.4, 0, 1, 1);
     --ease-pop: cubic-bezier(.34, 1.56, .64, 1);
-    --line-strong: #4a5c78; /* edges that must be seen: fields, checkboxes (3:1 against --bg) */
-    --ink: #e2e8f0;
-    --ink-dim: #8191a6;
-    --accent: #f59e0b;
-    --cyan: #38bdf8;
-    --green: #10b981;
-    --red: #fb7185; /* readable as 12px text on the panels (4.5:1) */
+    --line-strong: #64618a; /* edges that must be seen: fields, checkboxes (3:1 against --bg) */
+    --ink: #e7e4f3;
+    --ink-dim: #a5a1bf;
+    --accent: #f6c39f;
+    --cyan: #a5c8f7;
+    --green: #a8e2bd;
+    --red: #f5a5b8;
     /* Cascadia Mono comes with Windows 11, DejaVu Sans Mono with most Linux desktops */
     --mono: ui-monospace, "SF Mono", "Cascadia Mono", "JetBrains Mono", "DejaVu Sans Mono", "Liberation Mono", Menlo, Consolas, monospace;
     --radius: 6px;
     --radius-lg: 8px;
     /* tints for banners, chips, toggled buttons */
-    --accent-tint: color-mix(in oklab, var(--accent) 12%, transparent);
-    --cyan-tint: color-mix(in oklab, var(--cyan) 12%, transparent);
-    --green-tint: color-mix(in oklab, var(--green) 14%, transparent);
-    --red-tint: color-mix(in oklab, var(--red) 12%, transparent);
-    --glow-accent: 0 0 12px color-mix(in oklab, var(--accent) 35%, transparent);
+    --accent-tint: color-mix(in oklab, var(--accent) 14%, transparent);
+    --cyan-tint: color-mix(in oklab, var(--cyan) 14%, transparent);
+    --green-tint: color-mix(in oklab, var(--green) 15%, transparent);
+    --red-tint: color-mix(in oklab, var(--red) 14%, transparent);
+    --glow-accent: 0 0 12px color-mix(in oklab, var(--accent) 28%, transparent);
 
     color-scheme: dark;
     accent-color: var(--cyan);
-    scrollbar-color: #2c3a50 var(--bg);
+    scrollbar-color: #3a3852 var(--bg);
   }
 
   body { background: var(--bg); color: var(--ink); font-family: var(--mono); font-size: 13px; }
