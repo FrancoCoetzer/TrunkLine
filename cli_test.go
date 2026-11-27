@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"slices"
 	"testing"
+
+	"trunkline/internal/svn"
 )
 
 func TestParseArgs(t *testing.T) {
@@ -51,21 +53,22 @@ func TestParseArgs(t *testing.T) {
 func TestResolve(t *testing.T) {
 	a, wc := testApp(t)
 	put(t, filepath.Join(wc, "src", "new.c")) // unversioned: still found
+	long := svn.LongPath(wc)                   // Windows: the temp folder can come as a short (8.3) name
 	other := t.TempDir()
 
 	act := a.resolve(&cliRequest{Action: "commit", Paths: []string{"src/new.c", ".", other}}, wc)
 	if act.Error != "" {
 		t.Fatal(act.Error)
 	}
-	if act.WC != wc || !slices.Equal(act.Paths, []string{"src/new.c", ""}) || !slices.Equal(act.Skipped, []string{other}) {
+	if act.WC != long || !slices.Equal(act.Paths, []string{"src/new.c", ""}) || !slices.Equal(act.Skipped, []string{other}) {
 		t.Errorf("got %+v", act)
 	}
 	// From inside a subfolder, and the working copy is now in the list.
 	act = a.resolve(&cliRequest{Action: "log", Paths: []string{"new.c"}}, filepath.Join(wc, "src"))
-	if act.WC != wc || !slices.Equal(act.Paths, []string{"src/new.c"}) {
+	if act.WC != long || !slices.Equal(act.Paths, []string{"src/new.c"}) {
 		t.Errorf("from src: %+v", act)
 	}
-	if s := a.Startup(); len(s.WorkingCopies) != 1 || s.WorkingCopies[0].Path != wc {
+	if s := a.Startup(); len(s.WorkingCopies) != 1 || s.WorkingCopies[0].Path != long {
 		t.Errorf("working copies: %+v", s.WorkingCopies)
 	}
 
@@ -82,7 +85,7 @@ func TestPendingActionOnce(t *testing.T) {
 		t.Fatal(err)
 	}
 	a.pending = &cliRequest{Action: "update", Paths: []string{"."}}
-	if act := a.PendingAction(); act == nil || act.Action != "update" || act.WC != wc {
+	if act := a.PendingAction(); act == nil || act.Action != "update" || act.WC != svn.LongPath(wc) {
 		t.Fatalf("first: %+v", act)
 	}
 	if act := a.PendingAction(); act != nil {
