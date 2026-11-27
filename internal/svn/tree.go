@@ -16,6 +16,7 @@ import (
 // on Windows fails "move --parents" into a new folder (E155004: the working
 // copy is locked, by its own move).
 func (c *Client) Move(ctx context.Context, o Opts, src, dst string) error {
+	src, dst = LongPath(src), LongPath(dst) // see LongPath: short names trip svn's locks
 	if err := c.ensureFolder(ctx, o, filepath.Dir(dst)); err != nil {
 		return err
 	}

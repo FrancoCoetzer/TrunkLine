@@ -244,6 +244,8 @@ func (a *App) AddWorkingCopy(path string) (*config.WorkingCopy, error) {
 	if err != nil {
 		return nil, err
 	}
+	// Kept by its long name on Windows: svn trips over short (8.3) ones.
+	path = svn.LongPath(path)
 	info, err := c.Info(a.ctx, svn.Opts{}, path)
 	if err != nil {
 		if strings.Contains(err.Error(), "E155007") {
