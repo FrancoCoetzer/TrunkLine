@@ -15,6 +15,13 @@ that works the same on both, built with Go and [Wails](https://wails.io/).
 
 ## What it does
 
+New to TrunkLine? [docs/usage.md](docs/usage.md) walks through the everyday
+work first, then everything else.
+
+New to TrunkLine? [docs/usage.md](docs/usage.md) walks through the everyday
+work first, then everything else.
+
+
 - **Working copies**: a sidebar of your checkouts. Add one you already have, or
   check out from a repository.
 - **Changes**: what `svn status` shows, with a diff of the picked file. Tick
@@ -206,6 +213,8 @@ banner. `make dist TAG=v9.9.9` builds the same files locally for testing.
 | `internal/update` | checks GitHub releases, downloads, verifies and installs updates |
 | `internal/config` | saved settings: `~/.config/trunkline/config.json` (`%AppData%\trunkline` on Windows) |
 | `frontend/dist` | `index.html`, `app.js`, and `theme.css` |
+| `docs` | [usage.md](docs/usage.md) (how to use the app) and the README's screenshots |
+| `docs` | [usage.md](docs/usage.md) (how to use the app) and the README's screenshots |
 | `packaging` | the icon, `dist.sh` (release files), the .deb and .rpm, the Windows setup (NSIS) and .msi (wixl) |
 | `.github/workflows` | CI, and the release build |
 
