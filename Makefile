@@ -12,7 +12,7 @@ LINUX_TAGS := $(APP_TAGS),webkit2_41
 # STAMP(version, install kind): what the updater knows about this build.
 STAMP       = -X trunkline/internal/update.Version=$(1) -X trunkline/internal/update.Install=$(2)
 
-.PHONY: all app run dev windows winres test ui-test vet install-desktop dist dist-linux dist-windows release clean
+.PHONY: all app run dev windows winres test ui-test bench vet install-desktop dist dist-linux dist-windows release clean
 
 all: test app
 
@@ -37,6 +37,12 @@ ui-test:
 	go build -tags dev,webkit2_41 -ldflags "$(call STAMP,$(VERSION),source)" -o build/bin/trunkline-dev .
 	cd tests/ui && npm ci --no-audit --no-fund --silent
 	cd tests/ui && $(XVFB) npx playwright test
+
+# The big-repository benchmark (bench_test.go): times what the window does on
+# a repository of BENCH_REVS revisions (100000) and BENCH_FILES files (50000).
+# The repository is made once and kept in build/bench (a few GB).
+bench:
+	go test -tags bench -run TestBigRepo -v -count=1 -timeout 120m .
 
 # The Windows resources linked into the .exe (icon, version, manifest) are
 # written for each build by make_syso.py, with X.Y.Z of the last tag.
