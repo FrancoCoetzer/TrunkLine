@@ -1,0 +1,57 @@
+# CodeQL: GitHub's code scanner, over the Go code and the page's JavaScript,
+# on every push and pull request to main and once a week. Findings show
+# under Security, Code scanning.
+name: CodeQL
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: "17 4 * * 1" # Mondays, 04:17 UTC
+
+permissions:
+  contents: read
+  security-events: write # to upload the findings
+
+jobs:
+  analyze:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - language: go
+            build-mode: manual
+          - language: javascript-typescript
+            build-mode: none
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        if: matrix.language == 'go'
+        with:
+          go-version-file: go.mod
+
+      - name: Install build tools
+        if: matrix.language == 'go'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev
+
+      - uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: ${{ matrix.build-mode }}
+
+      # The Linux app (cgo) and the Windows one, so code behind build tags on
+      # either side is scanned.
+      - name: Build
+        if: matrix.language == 'go'
+        run: |
+          go build -tags desktop,production,webkit2_41 ./...
+          GOOS=windows go build -tags desktop,production ./...
+
+      - uses: github/codeql-action/analyze@v3
+        with:
+          category: /language:${{ matrix.language }}
