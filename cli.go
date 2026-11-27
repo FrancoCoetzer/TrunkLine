@@ -48,6 +48,9 @@ type Action struct {
 	Paths   []string `json:"paths,omitempty"`   // relative to WC, with /; "" is WC itself
 	Skipped []string `json:"skipped,omitempty"` // paths in another working copy, or none
 	Error   string   `json:"error,omitempty"`
+	// Folder comes with Error when the first path is in no working copy: the
+	// folder (the path, or a file's folder) to offer a checkout into or an import of.
+	Folder string `json:"folder,omitempty"`
 }
 
 var errHelp = errors.New("help")
@@ -153,6 +156,10 @@ func (a *App) resolve(r *cliRequest, cwd string) *Action {
 		if root == "" {
 			if wr == "" {
 				act.Error = abs + " is not in an SVN working copy."
+				act.Folder = abs
+				if fi, err := os.Stat(abs); err != nil || !fi.IsDir() {
+					act.Folder = filepath.Dir(abs)
+				}
 				return act
 			}
 			root = wr

@@ -41,7 +41,11 @@ The first screen offers two ways in:
 A working copy can also come from your file manager: right-click its folder
 and pick **Open With → TrunkLine** (Linux), or drag the folder onto
 TrunkLine's window. Either one adds it to the sidebar if it's new and opens
-it. A file works too: it opens the working copy the file is in.
+it. A file works too: it opens the working copy the file is in. A folder
+that isn't a working copy yet gets two offers: **Check out into it** (bring
+a repository folder's files into it; files already there are kept) or
+**Import it** (commit its files into a new folder in a repository, and keep
+working in it).
 
 Both end up in the sidebar: **Working copies** (your checkouts) and
 **Repositories** (saved URLs to browse). Click one to open it.

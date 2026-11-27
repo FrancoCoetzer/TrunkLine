@@ -294,6 +294,8 @@
   table.blame td.code { white-space: pre; }
   #progLog { font-family: var(--mono); height: 260px; overflow: auto; background: var(--bg); border: 1px solid var(--line); border-radius: var(--radius); padding: 6px 8px; white-space: pre; font-size: 12px; }
 
+  .notwc { padding-left: 20px; display: flex; flex-direction: column; gap: 6px; }
+
   /* Shown while files are dragged over the window (js/start.js) */
   .drop-hint { position: fixed; inset: 8px; z-index: 20; pointer-events: none; display: grid; place-items: center;
     border: 2px dashed var(--cyan); border-radius: var(--radius-lg); background: var(--cyan-tint); }
@@ -743,7 +745,7 @@
 <dialog id="checkoutDlg"><form method="dialog">
   <h3 id="coTitle">Check out</h3>
   <p id="coNote"></p>
-  <div class="field"><label>From</label><input id="coUrl" required></div>
+  <div class="field"><label for="coUrl">From</label><input id="coUrl" list="repoUrls" required placeholder="https://svn.example.com/project/trunk"></div>
   <div class="field"><label for="coParent">Into folder</label>
     <div class="row"><input id="coParent" required><button type="button" id="coPick">Choose…</button></div></div>
   <div class="field"><label for="coName">Name of the new folder</label><input id="coName" required></div>
@@ -762,12 +764,28 @@
     Build junk svn ignores (*.o, *.pyc, …) is left out.</p>
   <div class="field"><label for="imDir">Folder on your computer</label>
     <div class="row"><input id="imDir" required><button type="button" id="imPick">Choose…</button></div></div>
-  <div class="field"><label for="imName">New repository folder (inside the current one; use a/b for more levels, e.g. project/trunk)</label>
+  <div class="field" id="imBaseRow" hidden><label for="imBase">Into the repository folder</label>
+    <input id="imBase" list="repoUrls" placeholder="https://svn.example.com/repo"></div>
+  <div class="field"><label for="imName">New repository folder (inside that one; use a/b for more levels, e.g. project/trunk)</label>
     <input id="imName" required></div>
   <div class="field"><label for="imMsg">Commit message</label><input id="imMsg" required></div>
   <p id="imTarget"></p>
   <label style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="imInPlace" checked> Make my folder the working copy, so I can keep working in it and commit</label>
   <div class="actions"><button value="cancel" formnovalidate>Cancel</button><button class="primary" value="ok">Import</button></div>
+</form></dialog>
+
+<!-- Saved repositories, suggested where a URL is typed -->
+<datalist id="repoUrls"></datalist>
+
+<!-- A folder from outside (a drop, Open With, the command line) that is in no working copy -->
+<dialog id="notWcDlg"><form method="dialog">
+  <h3>Not a working copy</h3>
+  <p><b id="notWcPath"></b> is not in an SVN working copy. You can make it one:</p>
+  <ul class="notwc">
+    <li><b>Check out into it</b>: bring a repository folder's files (trunk, a branch, …) into this folder.</li>
+    <li><b>Import it</b>: commit this folder's files into a new folder in a repository.</li>
+  </ul>
+  <div class="actions"><button value="cancel" formnovalidate>Cancel</button><button value="import">Import it…</button><button class="primary" value="checkout" autofocus>Check out into it…</button></div>
 </form></dialog>
 
 <dialog id="progDlg"><form method="dialog">

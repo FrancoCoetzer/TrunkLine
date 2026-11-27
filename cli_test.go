@@ -72,8 +72,13 @@ func TestResolve(t *testing.T) {
 		t.Errorf("working copies: %+v", s.WorkingCopies)
 	}
 
-	if act := a.resolve(&cliRequest{Action: "open", Paths: []string{"."}}, other); act.Error == "" {
+	// Outside a working copy: the folder to offer a checkout or an import for.
+	if act := a.resolve(&cliRequest{Action: "open", Paths: []string{"."}}, other); act.Error == "" || act.Folder != svn.LongPath(other) {
 		t.Errorf("outside a working copy: %+v", act)
+	}
+	put(t, filepath.Join(other, "notes.txt"))
+	if act := a.resolve(&cliRequest{Action: "open", Paths: []string{"notes.txt"}}, other); act.Folder != svn.LongPath(other) {
+		t.Errorf("a file outside a working copy: %+v", act)
 	}
 }
 

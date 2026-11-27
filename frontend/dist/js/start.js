@@ -186,8 +186,9 @@ async function start() {
 
 async function runAction(act) {
   if (!act) return;
-  if (act.error) return toast(act.error, "err");
+  if (act.error && !act.folder) return toast(act.error, "err");
   if (modalOpen() || flowRunning) return toast("Finish what's open first, then try again.", "err");
+  if (act.folder) return offerFolder(act.folder);
   await reloadLists();
   await openWc(act.wc);
   if (act.skipped && act.skipped.length) {
@@ -255,6 +256,15 @@ async function runAction(act) {
   }
 }
 window.runtime.EventsOn("action", act => runAction(act));
+
+// offerFolder: a folder that isn't in a working copy can become one, by a
+// checkout into it or an import of it.
+async function offerFolder(dir) {
+  $("notWcPath").textContent = dir;
+  const pick = await ask($("notWcDlg"));
+  if (pick === "checkout") await checkoutInto(dir);
+  else if (pick === "import") await importFolder(dir);
+}
 
 // ---- Dropped on the window ----------------------------------------------------------------------
 //

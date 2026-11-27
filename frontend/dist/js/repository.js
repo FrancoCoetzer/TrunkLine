@@ -198,29 +198,53 @@ function folderName(url) {
   return name;
 }
 
+// fillRepoUrls offers the saved repositories where a URL is typed.
+function fillRepoUrls() {
+  $("repoUrls").replaceChildren(...state.servers.map(s => el("option", { value: s.url }, s.name)));
+}
+
 // askTarget opens the checkout dialog (also used for export) and resolves
-// with the chosen local folder, or "" if canceled.
-async function askTarget(title, note, okLabel, withDepth) {
-  const url = state.view.url;
+// with the chosen local folder, or "" if canceled. It starts from the browsed
+// folder; into (parent and name) is a folder chosen already, with no URL yet.
+async function askTarget(title, note, okLabel, withDepth, into) {
+  const url = into ? "" : state.view.url;
+  fillRepoUrls();
   $("coDepthRow").hidden = !withDepth;
   $("coDepth").value = "";
   $("coTitle").textContent = title;
   $("coNote").textContent = note;
   $("coOk").textContent = okLabel;
   $("coUrl").value = url;
-  $("coParent").value = store("checkoutParent") || "";
-  $("coName").value = folderName(url);
+  $("coParent").value = into ? into.parent : store("checkoutParent") || "";
+  $("coName").value = into ? into.name : folderName(url);
   showCoTarget();
-  if (await ask($("checkoutDlg")) !== "ok") return "";
+  const r = ask($("checkoutDlg"));
+  if (into) $("coUrl").focus();
+  if (await r !== "ok") return "";
   const target = coTarget();
   if (!target) { toast("Pick a folder and a name.", "err"); return ""; }
-  store("checkoutParent", $("coParent").value.trim());
+  if (!into) store("checkoutParent", $("coParent").value.trim());
   return target;
 }
 
 $("checkoutHereBtn").onclick = async () => {
   const target = await askTarget("Check out", "A working copy: you can change files and commit them back to this repository.", "Check out", true);
-  if (!target) return;
+  if (target) await checkOut(target);
+};
+
+// checkoutInto checks a repository folder out into dir, a folder that isn't
+// a working copy yet (from a drop or the file manager).
+async function checkoutInto(dir) {
+  const i = Math.max(dir.lastIndexOf("/"), dir.lastIndexOf("\\"));
+  const target = await askTarget("Check out into this folder",
+    "Type or pick the repository folder to check out (trunk, a branch, …). Files already in the folder are kept; " +
+    "if one has the same name as a file from the repository, yours stays and is marked as a conflict to sort out.",
+    "Check out", true, { parent: dir.slice(0, i) || dir.slice(0, i + 1), name: dir.slice(i + 1) });
+  if (target) await checkOut(target);
+}
+
+// checkOut checks the dialog's URL out into target and opens the working copy.
+async function checkOut(target) {
   const depth = $("coDepth").value;
   try {
     const wc = await withProgress("Checking out " + $("coName").value, () => call("Checkout", $("coUrl").value.trim(), target, depth));
@@ -251,15 +275,19 @@ $("exportHereBtn").onclick = async () => {
 
 // ---- Import -------------------------------------------------------------------------------------
 
+// The new folder's URL: inside the browsed folder, or (importing a folder
+// from outside) inside the repository folder typed into the dialog.
 function imTarget() {
   const name = $("imName").value.trim().replace(/^\/+|\/+$/g, "");
-  return name ? state.view.url.replace(/\/+$/, "") + "/" + encodePath(name) : "";
+  const base = $("imBaseRow").hidden ? state.view.url : $("imBase").value.trim();
+  return name && base ? base.replace(/\/+$/, "") + "/" + encodePath(name) : "";
 }
 function showImTarget() {
   const t = imTarget();
   $("imTarget").textContent = t ? "Creates " + decodeURI(t) : "Name the new repository folder.";
 }
 $("imName").oninput = showImTarget;
+$("imBase").oninput = showImTarget;
 $("imPick").onclick = async () => {
   const d = await Go().PickFolder("Folder to import");
   if (!d) return;
@@ -270,12 +298,23 @@ $("imPick").onclick = async () => {
   showImTarget();
 };
 
-$("importHereBtn").onclick = async () => {
-  $("imDir").value = "";
-  $("imName").value = "";
-  $("imMsg").value = "";
+$("importHereBtn").onclick = () => importFolder("");
+
+// importFolder opens the import dialog: into the browsed folder (dir ""), or
+// for dir, a folder from outside, into a repository folder typed there.
+async function importFolder(folder) {
+  const base = folder.split(/[\\/]/).filter(Boolean).pop() || "";
+  $("imBaseRow").hidden = !folder;
+  $("imBase").required = !!folder; // a hidden required field would block the form
+  $("imBase").value = folder && state.servers.length === 1 ? state.servers[0].url : "";
+  fillRepoUrls();
+  $("imDir").value = folder;
+  $("imName").value = base;
+  $("imMsg").value = base ? "Import " + base : "";
   showImTarget();
-  if (await ask($("importDlg")) !== "ok") return;
+  const r = ask($("importDlg"));
+  if (folder) ($("imBase").value ? $("imName") : $("imBase")).focus();
+  if (await r !== "ok") return;
   const dir = $("imDir").value.trim(), url = imTarget(), msg = $("imMsg").value.trim();
   if (!dir || !url) return toast("Pick a folder and name the new repository folder.", "err");
   if (!msg) return toast("Write a commit message.", "err");
@@ -290,7 +329,7 @@ $("importHereBtn").onclick = async () => {
       const trim = p => p.replace(/[\\/]+$/, "");
       const wc = state.wcs.find(w => trim(w.path) === trim(dir)) || state.wcs[state.wcs.length - 1];
       if (wc) openWc(wc.path);
-    } else {
+    } else if (state.view && state.view.type === "browse") {
       listBrowse();
     }
   } catch (e) {
@@ -298,4 +337,4 @@ $("importHereBtn").onclick = async () => {
     await reloadLists();
     if (state.view && state.view.type === "browse") listBrowse();
   }
-};
+}
