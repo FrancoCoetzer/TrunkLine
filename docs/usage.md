@@ -38,6 +38,11 @@ The first screen offers two ways in:
 - **Add a repository**: give a URL. You can then browse it and check out
   any folder (`trunk`, a branch, a tag) into a folder of your choice.
 
+A working copy can also come from your file manager: right-click its folder
+and pick **Open With → TrunkLine** (Linux), or drag the folder onto
+TrunkLine's window. Either one adds it to the sidebar if it's new and opens
+it. A file works too: it opens the working copy the file is in.
+
 Both end up in the sidebar: **Working copies** (your checkouts) and
 **Repositories** (saved URLs to browse). Click one to open it.
 

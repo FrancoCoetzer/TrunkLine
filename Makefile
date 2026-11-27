@@ -67,11 +67,13 @@ vet:
 	go vet ./...
 	GOOS=windows go vet -tags $(APP_TAGS) ./...
 
-# A launcher in the desktop's app menu for this clone's build.
+# A launcher in the desktop's app menu for this clone's build, also under
+# "Open With" on folders.
 install-desktop: app
 	mkdir -p $(HOME)/.local/share/applications
-	printf '[Desktop Entry]\nType=Application\nName=TrunkLine (dev)\nExec=%s\nIcon=%s\nTerminal=false\nCategories=Development;RevisionControl;\n' \
+	printf '[Desktop Entry]\nType=Application\nName=TrunkLine (dev)\nExec=%s %%F\nIcon=%s\nTerminal=false\nCategories=Development;RevisionControl;\nMimeType=inode/directory;\n' \
 		"$(CURDIR)/build/bin/trunkline" "$(CURDIR)/packaging/trunkline.svg" > $(HOME)/.local/share/applications/trunkline-dev.desktop
+	-command -v update-desktop-database >/dev/null && update-desktop-database $(HOME)/.local/share/applications
 	@echo "Installed ~/.local/share/applications/trunkline-dev.desktop"
 
 # The release files for TAG (default: the tag at HEAD) in build/dist, by

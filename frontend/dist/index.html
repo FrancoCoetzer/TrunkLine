@@ -294,6 +294,11 @@
   table.blame td.code { white-space: pre; }
   #progLog { font-family: var(--mono); height: 260px; overflow: auto; background: var(--bg); border: 1px solid var(--line); border-radius: var(--radius); padding: 6px 8px; white-space: pre; font-size: 12px; }
 
+  /* Shown while files are dragged over the window (js/start.js) */
+  .drop-hint { position: fixed; inset: 8px; z-index: 20; pointer-events: none; display: grid; place-items: center;
+    border: 2px dashed var(--cyan); border-radius: var(--radius-lg); background: var(--cyan-tint); }
+  .drop-hint div { padding: 10px 16px; border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--panel); }
+
   /* Messages: a stack in the bottom right. They wait while a dialog is open (see toast() in js/core.js). */
   #toasts { position: fixed; right: 16px; bottom: 16px; z-index: 10; display: flex; flex-direction: column; align-items: flex-end;
     gap: 8px; max-width: min(560px, calc(100vw - 32px)); pointer-events: none; }
@@ -479,7 +484,7 @@
     <!-- Nothing picked yet -->
     <div id="welcome" class="welcome">
       <h1>Welcome to TrunkLine</h1>
-      <p class="muted">Add a repository URL to browse it and check it out, or add a folder you already checked out.</p>
+      <p class="muted">Add a repository URL to browse it and check it out, or add a folder you already checked out. You can also drop a working copy's folder on this window.</p>
       <div class="row">
         <button class="primary" id="welcomeServer">Add a repository</button>
         <button id="welcomeWc">Add an existing working copy</button>
@@ -968,6 +973,7 @@
 </form></dialog>
 
 <!-- Messages: shown in #toasts; announced through the live regions, which are always in the page -->
+<div id="dropHint" class="drop-hint" hidden><div>Drop to open its working copy</div></div>
 <div id="toasts" role="region" aria-label="Notifications"></div>
 <div class="sr-only" id="announcePolite" aria-live="polite"></div>
 <div class="sr-only" id="announceAlert" aria-live="assertive"></div>

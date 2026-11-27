@@ -209,6 +209,15 @@ func (a *App) PendingAction() *Action {
 	return a.resolve(r, cwd)
 }
 
+// OpenDropped opens the working copy of the files or folders dropped on the
+// window, as `trunkline <path>` would (nil when nothing was dropped).
+func (a *App) OpenDropped(paths []string) *Action {
+	if len(paths) == 0 {
+		return nil
+	}
+	return a.resolve(&cliRequest{Action: "open", Paths: paths}, "")
+}
+
 // secondInstance takes the arguments of a second launch: it brings the window
 // forward and sends the page the action.
 func (a *App) secondInstance(d options.SecondInstanceData) {

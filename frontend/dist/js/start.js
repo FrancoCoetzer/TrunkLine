@@ -256,4 +256,30 @@ async function runAction(act) {
 }
 window.runtime.EventsOn("action", act => runAction(act));
 
+// ---- Dropped on the window ----------------------------------------------------------------------
+//
+// A folder (or a file) dragged from the file manager onto the window opens its
+// working copy, as `trunkline <path>` does. Wails hands over the paths
+// (DragAndDrop.EnableFileDrop); the hint shows while something is dragged over.
+
+async function openDropped(paths) {
+  hideDropHint();
+  if (!paths || !paths.length) return;
+  try { await runAction(await call("OpenDropped", paths)); } catch (e) { report(e); }
+}
+
+let dropHintTimer = 0;
+function hideDropHint() { clearTimeout(dropHintTimer); $("dropHint").hidden = true; }
+const draggingFiles = e => !!e.dataTransfer && [...e.dataTransfer.types].includes("Files");
+document.addEventListener("dragover", e => {
+  if (!draggingFiles(e)) return;
+  e.preventDefault(); // or the webview would open the file itself
+  $("dropHint").hidden = false;
+  // dragover repeats while the pointer is over the window; when it stops, the drag has left
+  clearTimeout(dropHintTimer);
+  dropHintTimer = setTimeout(hideDropHint, 250);
+});
+document.addEventListener("drop", e => { if (draggingFiles(e)) { e.preventDefault(); hideDropHint(); } });
+if (window.runtime.OnFileDrop) window.runtime.OnFileDrop((_x, _y, paths) => openDropped(paths), false);
+
 start();

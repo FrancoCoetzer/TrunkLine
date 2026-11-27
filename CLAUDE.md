@@ -75,6 +75,12 @@ rebuild after editing `frontend/dist`.
   have got to by hand and never skip a confirmation (revert asks, commit waits
   for the message). One window: a second launch hands its arguments over
   (`SingleInstanceLock`); dev builds use their own `instanceID`.
+- **Opened from the file manager**: the .desktop file lists
+  `MimeType=inode/directory` ("Open With" on folders) with `Exec=... %F`
+  (not `open %F`, which from the app menu would open the current folder).
+  Nothing of ours may write `mimeapps.list`: TrunkLine must never become the
+  default folder handler. A drop on the window (`DragAndDrop.EnableFileDrop`)
+  goes through `OpenDropped`, the same path as `trunkline <path>`.
 
 - **Updates** (`internal/update`): releases come from GitHub (`update.Repo`).
   An update is only installed after its SHA-256 matches the release's

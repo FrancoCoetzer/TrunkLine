@@ -3,8 +3,14 @@ Type=Application
 Name=TrunkLine
 GenericName=SVN Client
 Comment=Subversion (SVN) client
-Exec=/usr/bin/trunkline
+# %F: a folder from a file manager's "Open With" opens its working copy; from
+# the app menu there's none and the window opens as usual. (Not "open %F":
+# with no folder that would open the current folder.)
+Exec=/usr/bin/trunkline %F
 Icon=trunkline
 Terminal=false
 Categories=Development;RevisionControl;
 Keywords=svn;subversion;version control;
+# Lists TrunkLine under "Open With" on folders. Never make it the default
+# folder handler: nothing of ours writes mimeapps.list.
+MimeType=inode/directory;

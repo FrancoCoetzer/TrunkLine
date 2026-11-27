@@ -109,7 +109,7 @@ modules:
         -ldflags "-s -w -X trunkline/internal/update.Version=v@VERSION@ -X trunkline/internal/update.Install=flatpak"
         -o /app/bin/trunkline .
       - install -Dm644 packaging/linux/trunkline.desktop /app/share/applications/io.github.FrancoCoetzer.TrunkLine.desktop
-      - desktop-file-edit --set-icon=io.github.FrancoCoetzer.TrunkLine --set-key=Exec --set-value=trunkline
+      - desktop-file-edit --set-icon=io.github.FrancoCoetzer.TrunkLine --set-key=Exec --set-value="trunkline %F"
         /app/share/applications/io.github.FrancoCoetzer.TrunkLine.desktop
       - install -Dm644 packaging/trunkline.svg /app/share/icons/hicolor/scalable/apps/io.github.FrancoCoetzer.TrunkLine.svg
       - install -Dm644 packaging/flatpak/io.github.FrancoCoetzer.TrunkLine.metainfo.xml /app/share/metainfo/io.github.FrancoCoetzer.TrunkLine.metainfo.xml

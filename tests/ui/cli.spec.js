@@ -1,7 +1,8 @@
-// The command line: a second launch hands its action to the running app,
-// whose page (this one too) starts it.
+// Opened from outside: a second launch hands its action to the running app,
+// whose page (this one too) starts it; a folder dropped on the window opens
+// its working copy.
 const { test, expect } = require("@playwright/test");
-const { watchErrors, openWorkingCopy, trunkline, shot } = require("./helpers");
+const { fx, watchErrors, openWorkingCopy, trunkline, shot } = require("./helpers");
 
 let noErrors;
 test.beforeEach(async ({ page }) => {
@@ -36,4 +37,30 @@ test("blame opens for a file", async ({ page }, info) => {
 test("a path outside a working copy says so", async ({ page }) => {
   await trunkline("commit", "/");
   await expect(page.locator(".toast").last()).toContainText("is not in an SVN working copy");
+});
+
+// Wails hands the page a drop's paths; openDropped is what it calls.
+test("a dropped folder opens its working copy", async ({ page }) => {
+  const { wc } = fx();
+  await page.evaluate(() => showView("welcome"));
+  await expect(page.locator("#wcView")).toBeHidden();
+  await page.evaluate(p => openDropped([p]), wc + "/src");
+  await expect(page.locator("#wcView")).toBeVisible();
+  await expect(page.locator("#wcName")).toContainText("wc");
+});
+
+test("a dropped folder outside a working copy says so", async ({ page }) => {
+  await page.evaluate(() => openDropped(["/"]));
+  await expect(page.locator(".toast").last()).toContainText("is not in an SVN working copy");
+});
+
+test("dragging files over the window shows the hint", async ({ page }, info) => {
+  await page.evaluate(() => {
+    const dataTransfer = new DataTransfer();
+    dataTransfer.items.add(new File(["x"], "x.txt"));
+    document.body.dispatchEvent(new DragEvent("dragover", { dataTransfer, bubbles: true, cancelable: true }));
+  });
+  await expect(page.locator("#dropHint")).toBeVisible();
+  await shot(page, info, "drop-hint");
+  await expect(page.locator("#dropHint")).toBeHidden(); // the drag left: no more dragover
 });

@@ -118,6 +118,8 @@ work first, then everything else.
 - **Command line**: `trunkline commit .`, `trunkline log file.c`, `trunkline blame
   file.c` and more (`trunkline --help`) open TrunkLine at that task. If it's
   already running, the running window takes it, so there's only ever one.
+- **From the file manager**: "Open With TrunkLine" on a folder (any Linux file
+  manager), or drag a folder onto the window, opens that working copy.
 - **Menus** along the top: File (add a working copy or repository,
   Preferences, Quit), View (tabs, unversioned files, theme, zoom) and Help
   (keyboard shortcuts, updates, reporting a problem, About). Alt+F, Alt+V and
@@ -244,8 +246,6 @@ What's next, roughly in order:
 - **Right-click in your file manager**: Commit, Update, Log, Blame, Lock and
   more from a TrunkLine menu in Nautilus, Dolphin, Nemo, Caja, Thunar and
   PCManFM-Qt, with svn status on files where the file manager allows it.
-  "Open with TrunkLine" on folders works in any file manager, and a command
-  line (`trunkline commit .`) is there for the terminal.
 - **Image diffs**: see what changed in a picture: side by side, a swipe,
   onion skin, or the differences highlighted. For teams with art, designs and
   other binary assets.

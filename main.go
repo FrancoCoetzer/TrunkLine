@@ -50,6 +50,8 @@ func main() {
 		AssetServer:      &assetserver.Options{Assets: assets},
 		OnStartup:        app.startup,
 		Bind:             []any{app},
+		// A folder dropped on the window opens its working copy (OpenDropped).
+		DragAndDrop: &options.DragAndDrop{EnableFileDrop: true},
 		SingleInstanceLock: &options.SingleInstanceLock{
 			UniqueId:               instanceID,
 			OnSecondInstanceLaunch: app.secondInstance,

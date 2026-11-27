@@ -56,5 +56,5 @@ parts:
         -ldflags "-s -w -X trunkline/internal/update.Version=$version -X trunkline/internal/update.Install=snap" \
         -o "$CRAFT_PART_INSTALL/bin/trunkline" .
       install -Dm644 packaging/linux/trunkline.desktop "$CRAFT_PART_INSTALL/usr/share/applications/trunkline.desktop"
-      sed -i -e 's|^Icon=.*|Icon=${SNAP}/meta/gui/icon.svg|' -e 's|^Exec=.*|Exec=trunkline|' \
+      sed -i -e 's|^Icon=.*|Icon=${SNAP}/meta/gui/icon.svg|' -e 's|^Exec=.*|Exec=trunkline %F|' \
         "$CRAFT_PART_INSTALL/usr/share/applications/trunkline.desktop"
