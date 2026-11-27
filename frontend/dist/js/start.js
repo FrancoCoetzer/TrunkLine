@@ -270,16 +270,20 @@ async function openDropped(paths) {
 
 let dropHintTimer = 0;
 function hideDropHint() { clearTimeout(dropHintTimer); $("dropHint").hidden = true; }
-const draggingFiles = e => !!e.dataTransfer && [...e.dataTransfer.types].includes("Files");
+// Files from the file manager: WebView2 calls them "Files", WebKitGTK only
+// "text/uri-list".
+const draggingFiles = e => !!e.dataTransfer && [...e.dataTransfer.types].some(t => t === "Files" || t === "text/uri-list");
+// Any drop from outside is ours: the webview's default would open the folder,
+// file or link as a page in place of TrunkLine (the page has no drags of its own).
 document.addEventListener("dragover", e => {
+  e.preventDefault();
   if (!draggingFiles(e)) return;
-  e.preventDefault(); // or the webview would open the file itself
   $("dropHint").hidden = false;
   // dragover repeats while the pointer is over the window; when it stops, the drag has left
   clearTimeout(dropHintTimer);
   dropHintTimer = setTimeout(hideDropHint, 250);
 });
-document.addEventListener("drop", e => { if (draggingFiles(e)) { e.preventDefault(); hideDropHint(); } });
+document.addEventListener("drop", e => { e.preventDefault(); hideDropHint(); });
 if (window.runtime.OnFileDrop) window.runtime.OnFileDrop((_x, _y, paths) => openDropped(paths), false);
 
 start();

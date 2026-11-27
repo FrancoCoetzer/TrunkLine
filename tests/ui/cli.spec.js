@@ -54,13 +54,36 @@ test("a dropped folder outside a working copy says so", async ({ page }) => {
   await expect(page.locator(".toast").last()).toContainText("is not in an SVN working copy");
 });
 
-test("dragging files over the window shows the hint", async ({ page }, info) => {
-  await page.evaluate(() => {
+// A drag as each webview reports it: WebView2 says "Files", WebKitGTK only
+// "text/uri-list" (a folder from Nautilus).
+async function dragOver(page, kind) {
+  return page.evaluate(kind => {
     const dataTransfer = new DataTransfer();
-    dataTransfer.items.add(new File(["x"], "x.txt"));
-    document.body.dispatchEvent(new DragEvent("dragover", { dataTransfer, bubbles: true, cancelable: true }));
+    if (kind === "Files") dataTransfer.items.add(new File(["x"], "x.txt"));
+    else dataTransfer.setData("text/uri-list", "file:///tmp/wc\r\n");
+    const over = new DragEvent("dragover", { dataTransfer, bubbles: true, cancelable: true });
+    document.body.dispatchEvent(over);
+    return over.defaultPrevented;
+  }, kind);
+}
+
+for (const kind of ["Files", "text/uri-list"]) {
+  test(`dragging ${kind} over the window shows the hint`, async ({ page }, info) => {
+    expect(await dragOver(page, kind)).toBe(true);
+    await expect(page.locator("#dropHint")).toBeVisible();
+    if (kind === "Files") await shot(page, info, "drop-hint");
+    await expect(page.locator("#dropHint")).toBeHidden(); // the drag left: no more dragover
   });
-  await expect(page.locator("#dropHint")).toBeVisible();
-  await shot(page, info, "drop-hint");
-  await expect(page.locator("#dropHint")).toBeHidden(); // the drag left: no more dragover
+}
+
+// The webview would otherwise open what was dropped as a page, in place of TrunkLine.
+test("a drop never opens as a page", async ({ page }) => {
+  const prevented = await page.evaluate(() => {
+    const dataTransfer = new DataTransfer();
+    dataTransfer.setData("text/uri-list", "https://example.com/\r\n");
+    const drop = new DragEvent("drop", { dataTransfer, bubbles: true, cancelable: true });
+    document.body.dispatchEvent(drop);
+    return drop.defaultPrevented;
+  });
+  expect(prevented).toBe(true);
 });
