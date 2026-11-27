@@ -19,6 +19,15 @@ that works the same on both, built with Go and [Wails](https://wails.io/).
   marked resolved or committed by accident.
 - **Ignore** new files you never want to commit (build output, logs) from the
   Changes list, by name or by extension, in one folder or its subfolders too.
+- **Changelists**: group changed files under a name ("login fix") to commit
+  them apart from your other changes. The Changes list shows each group under
+  a heading whose box ticks the whole group. Changelists stay in your working
+  copy; committing a file takes it out of its changelist.
+- **Properties**: see and edit a file's or folder's svn properties (line
+  endings, needs-lock, ignore lists, externals, your own), with a short
+  explanation of each one svn knows. From the diff pane's Properties button,
+  or the ⋯ menu for the top folder. Like any change, they're shared by
+  committing them.
 - **Update**, with svn's output shown as it runs. The Update button shows how
   many files changed on the server (checked in the background), and a
   conflict an update causes is pointed out. **Check server** shows what an

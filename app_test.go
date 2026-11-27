@@ -719,3 +719,143 @@ func TestMergePlanAndGuards(t *testing.T) {
 		t.Errorf("ordinary partial commit: %v", err)
 	}
 }
+
+func TestSetChangelistApp(t *testing.T) {
+	a, wc := testApp(t)
+	put(t, filepath.Join(wc, "src", "main.c"))
+	if _, err := a.Commit(wc, "src", []string{"src"}, CommitOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	put(t, filepath.Join(wc, "new.c"))
+	for _, c := range []struct {
+		rel  []string
+		name string
+		want string
+	}{
+		{nil, "x", "Pick the files"},
+		{[]string{"src"}, "x", "is a folder"},
+		{[]string{"new.c"}, "x", "Add it first"},
+		{[]string{"src/main.c"}, " x", "can't be empty"},
+	} {
+		if err := a.SetChangelist(wc, c.rel, c.name); err == nil || !strings.Contains(err.Error(), c.want) {
+			t.Errorf("SetChangelist(%v, %q) = %v, want %q", c.rel, c.name, err, c.want)
+		}
+	}
+	if err := a.SetChangelist(wc, []string{"src/main.c"}, "parser"); err != nil {
+		t.Fatal(err)
+	}
+	st, err := a.Status(wc, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, ch := range st.Changes {
+		if ch.Path == "src/main.c" {
+			found = ch.Changelist == "parser" && ch.Item == "normal"
+		}
+	}
+	if !found {
+		t.Errorf("status = %+v", st.Changes)
+	}
+}
+
+func TestSetPropsApp(t *testing.T) {
+	a, wc := testApp(t)
+	put(t, filepath.Join(wc, "src", "main.c"))
+	if _, err := a.Commit(wc, "src", []string{"src"}, CommitOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	// A commit inside src leaves the folder itself at an older revision: a
+	// property change on it then only commits if SetProps updated it first.
+	if err := os.WriteFile(filepath.Join(wc, "src", "main.c"), []byte("y\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.Commit(wc, "edit", []string{"src/main.c"}, CommitOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.SetProps(wc, "src", map[string]string{"svn:ignore": "*.o\n*.tmp\n", "owner": "firmware"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.SetProps(wc, "src/main.c", map[string]string{"svn:eol-style": "native", "svn:needs-lock": "*"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.Commit(wc, "props", []string{"src", "src/main.c"}, CommitOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	p, err := a.Props(wc, "src")
+	if err != nil || !p.IsDir || fmt.Sprint(p.Props) != "[{owner firmware} {svn:ignore *.o\n*.tmp\n}]" {
+		t.Errorf("Props(src) = %+v, %v", p, err)
+	}
+	// Removing one, changing another.
+	if err := a.SetProps(wc, "src/main.c", map[string]string{"svn:needs-lock": "", "svn:eol-style": "LF"}); err != nil {
+		t.Fatal(err)
+	}
+	if p, _ := a.Props(wc, "src/main.c"); p.IsDir || fmt.Sprint(p.Props) != "[{svn:eol-style LF}]" {
+		t.Errorf("Props(main.c) = %+v", p)
+	}
+	// The top folder, and a folder that's only added.
+	put(t, filepath.Join(wc, "doc", "a.md"))
+	if err := a.Add(wc, []string{"doc"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.SetProps(wc, "doc", map[string]string{"svn:ignore": "*.pdf"}); err != nil {
+		t.Errorf("on an added folder: %v", err)
+	}
+	if err := a.SetProps(wc, ".", map[string]string{"svn:global-ignores": "build"}); err != nil {
+		t.Errorf("on the top folder: %v", err)
+	}
+	for _, c := range []struct {
+		set  map[string]string
+		want string
+	}{
+		{map[string]string{"svn:mergeinfo": "/x:1"}, "changed by merging"},
+		{map[string]string{"bad name": "x"}, "valid property name"},
+		{map[string]string{"svn:eol-style": "sideways"}, "native, LF"},
+		// Checked before anything changes: svn:eol-style isn't set either.
+		{map[string]string{"svn:eol-style": "CRLF", "svn:ignore": "*.o"}, "is for folders"},
+	} {
+		err := a.SetProps(wc, "src/main.c", c.set)
+		if err == nil || !strings.Contains(err.Error(), c.want) {
+			t.Errorf("SetProps(%v) = %v, want %q", c.set, err, c.want)
+		}
+	}
+}
+
+func TestSetPropsFolderOnly(t *testing.T) {
+	a, wc := testApp(t)
+	put(t, filepath.Join(wc, "a.c"))
+	if _, err := a.Commit(wc, "a", []string{"a.c"}, CommitOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.SetProps(wc, ".", map[string]string{"svn:needs-lock": "*"}); err == nil || !strings.Contains(err.Error(), "is for files") {
+		t.Errorf("needs-lock on a folder: %v", err)
+	}
+	// Removing is always allowed (whatever got there).
+	if err := a.SetProps(wc, "a.c", map[string]string{"svn:ignore": ""}); err != nil {
+		t.Errorf("removing: %v", err)
+	}
+	if p, _ := a.Props(wc, "a.c"); len(p.Props) != 0 {
+		t.Errorf("a.c props = %v", p.Props)
+	}
+}
+
+func TestDiffFolderOnly(t *testing.T) {
+	a, wc := testApp(t)
+	put(t, filepath.Join(wc, "src", "main.c"))
+	if _, err := a.Commit(wc, "src", []string{"src"}, CommitOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(wc, "src", "main.c"), []byte("changed\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.SetProps(wc, "src", map[string]string{"svn:ignore": "*.o"}); err != nil {
+		t.Fatal(err)
+	}
+	d, err := a.Diff(wc, "src")
+	if err != nil || !strings.Contains(d, "svn:ignore") || strings.Contains(d, "changed") {
+		t.Errorf("folder diff = %q, %v", d, err)
+	}
+	if d, _ := a.Diff(wc, "src/main.c"); !strings.Contains(d, "+changed") {
+		t.Errorf("file diff = %q", d)
+	}
+}

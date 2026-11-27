@@ -5,11 +5,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"net/url"
 	"os"
 	"os/exec"
 	"path"
 	"path/filepath"
+	"regexp"
 	goruntime "runtime"
 	"slices"
 	"strconv"
@@ -1538,4 +1540,131 @@ func (a *App) MergeInto(wc, src string, revs []int) error {
 		return &appError{Kind: "needclean", Message: "svn needs a working copy without local changes for this merge: commit or revert them first."}
 	}
 	return a.wrap(err, host)
+}
+
+// --- Changelists and properties ---------------------------------------------------
+
+// SetChangelist puts the working copy files rel in changelist name (moving
+// them out of any other), or with name "" takes them out of theirs. Only
+// files that are in the repository (or added) can be in a changelist.
+func (a *App) SetChangelist(wc string, rel []string, name string) error {
+	if len(rel) == 0 {
+		return &appError{Kind: "other", Message: "Pick the files first."}
+	}
+	if name != "" && !svn.ValidChangelistName(name) {
+		return &appError{Kind: "other", Message: "A changelist name can't be empty, start or end with a space, or be longer than 60 characters."}
+	}
+	c, err := a.client()
+	if err != nil {
+		return err
+	}
+	host := a.wcHost(wc)
+	o := a.opts(host)
+	changes, _, err := c.Status(a.ctx, o, wc, false)
+	if err != nil {
+		return a.wrap(err, host)
+	}
+	item := map[string]string{}
+	for _, ch := range changes {
+		item[ch.Path] = ch.Item
+	}
+	for _, r := range rel {
+		if st, err := os.Stat(filepath.Join(wc, filepath.FromSlash(r))); err == nil && st.IsDir() {
+			return &appError{Kind: "other", Message: r + " is a folder: only files can be in a changelist."}
+		}
+		if it := item[r]; it == "unversioned" || it == "ignored" {
+			return &appError{Kind: "other", Message: r + " isn't in svn yet: Add it first, then it can go in a changelist."}
+		}
+	}
+	return a.wrap(c.SetChangelist(a.ctx, o, name, abs(wc, rel)...), host)
+}
+
+// PropsResult is a file's or folder's properties.
+type PropsResult struct {
+	Props []svn.Prop `json:"props"`
+	IsDir bool       `json:"isDir"`
+}
+
+// Props lists the properties of a working copy file or folder (rel "." is
+// the top folder), with local changes.
+func (a *App) Props(wc, rel string) (*PropsResult, error) {
+	c, err := a.client()
+	if err != nil {
+		return nil, err
+	}
+	p := filepath.Join(wc, filepath.FromSlash(rel))
+	st, err := os.Stat(p)
+	if err != nil {
+		return nil, err
+	}
+	host := a.wcHost(wc)
+	props, err := c.ListProps(a.ctx, a.opts(host), p)
+	if err != nil {
+		return nil, a.wrap(err, host)
+	}
+	return &PropsResult{Props: props, IsDir: st.IsDir()}, nil
+}
+
+var propNameRe = regexp.MustCompile(`^[A-Za-z_:][A-Za-z0-9_:.-]*$`)
+
+// Properties svn manages itself, which aren't edited by hand.
+var readOnlyProps = map[string]string{
+	"svn:mergeinfo": "svn:mergeinfo records merges: it's changed by merging, not by hand.",
+	"svn:special":   "svn:special marks symbolic links: svn sets it itself.",
+}
+
+// Properties svn only accepts on folders, or only on files.
+var (
+	folderProps = []string{"svn:ignore", "svn:global-ignores", "svn:externals", "svn:auto-props", "svn:inheritable-ignores"}
+	fileProps   = []string{"svn:needs-lock", "svn:executable", "svn:eol-style", "svn:mime-type", "svn:keywords"}
+	eolStyles   = []string{"native", "LF", "CRLF", "CR"}
+)
+
+// SetProps changes properties of a working copy file or folder: each name
+// in set gets its value, and a value of "" removes the property. They are
+// local changes, to be committed. What svn would refuse (svn:ignore on a
+// file, an unknown svn:eol-style) is checked first, so a refusal doesn't
+// leave only some of the changes made; svn checks the rest itself.
+func (a *App) SetProps(wc, rel string, set map[string]string) error {
+	p := filepath.Join(wc, filepath.FromSlash(rel))
+	st, err := os.Stat(p)
+	if err != nil {
+		return err
+	}
+	names := slices.Sorted(maps.Keys(set))
+	for _, n := range names {
+		switch {
+		case set[n] == "":
+		case st.IsDir() && slices.Contains(fileProps, n):
+			return &appError{Kind: "other", Message: n + " is for files: it can't be set on a folder."}
+		case !st.IsDir() && slices.Contains(folderProps, n):
+			return &appError{Kind: "other", Message: n + " is for folders: it can't be set on a file. Set it on the folder the file is in."}
+		case n == "svn:eol-style" && !slices.Contains(eolStyles, set[n]):
+			return &appError{Kind: "other", Message: "svn:eol-style can be native, LF, CRLF or CR."}
+		}
+		if !propNameRe.MatchString(n) {
+			return &appError{Kind: "other", Message: fmt.Sprintf("%q isn't a valid property name: use letters, digits and _ : . - (starting with a letter, _ or :).", n)}
+		}
+		if why, ok := readOnlyProps[n]; ok {
+			return &appError{Kind: "other", Message: why}
+		}
+	}
+	c, err := a.client()
+	if err != nil {
+		return err
+	}
+	host := a.wcHost(wc)
+	o := a.opts(host)
+	if st.IsDir() {
+		// svn only commits a property change on a folder that is up to date.
+		if err := c.UpdateFolderOnly(a.ctx, o, p); err != nil {
+			return a.wrap(err, host)
+		}
+	}
+	for _, n := range names {
+		if err := c.SetProp(a.ctx, o, n, set[n], p); err != nil {
+			return a.wrap(err, host)
+		}
+	}
+	return nil
 }

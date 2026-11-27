@@ -2,6 +2,7 @@ package svn
 
 import (
 	"context"
+	"encoding/xml"
 	"errors"
 	"os"
 	"slices"
@@ -90,4 +91,34 @@ func (c *Client) Relocate(ctx context.Context, o Opts, from, to, wc string) erro
 func IsOtherRepository(err error) bool {
 	var e *Error
 	return errors.As(err, &e) && e.has([]string{"E195009"})
+}
+
+// Prop is one property of a file or folder.
+type Prop struct {
+	Name  string `json:"name"`
+	Value string `json:"value"`
+}
+
+// ListProps is every property set on a working copy path (as changed
+// locally, not yet committed), sorted by name.
+func (c *Client) ListProps(ctx context.Context, o Opts, path string) ([]Prop, error) {
+	out, err := c.run(ctx, o, nil, "proplist", "-v", "--xml", "--", path)
+	if err != nil {
+		return nil, err
+	}
+	var x struct {
+		Props []struct {
+			Name  string `xml:"name,attr"`
+			Value string `xml:",chardata"`
+		} `xml:"target>property"`
+	}
+	if err := xml.Unmarshal(out, &x); err != nil {
+		return nil, errorf("proplist", err)
+	}
+	props := []Prop{}
+	for _, p := range x.Props {
+		props = append(props, Prop{p.Name, strings.ReplaceAll(p.Value, "\r\n", "\n")})
+	}
+	slices.SortFunc(props, func(a, b Prop) int { return strings.Compare(a.Name, b.Name) })
+	return props, nil
 }

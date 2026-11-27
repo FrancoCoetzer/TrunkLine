@@ -174,7 +174,8 @@ function encodePath(p) { return p.split("/").map(encodeURIComponent).join("/"); 
 
 // ---- Dialogs -------------------------------------------------------------------
 
-// ask opens a dialog and resolves with "ok" or "cancel". It listens for the
+// ask opens a dialog and resolves with the value of the button that closed
+// it ("ok", another submit button's value) or "cancel". It listens for the
 // form's submit and the dialog's cancel (Esc) rather than the close event,
 // which a webview that is not painting (minimised, hidden) can hold back.
 function ask(dlg) {
@@ -186,7 +187,7 @@ function ask(dlg) {
       if (dlg.open) dlg.close(v);
       resolve(v);
     };
-    const onSubmit = e => { e.preventDefault(); done(e.submitter && e.submitter.value === "ok" ? "ok" : "cancel"); };
+    const onSubmit = e => { e.preventDefault(); done(e.submitter && e.submitter.value || "cancel"); };
     const onCancel = e => { e.preventDefault(); done("cancel"); };
     form.addEventListener("submit", onSubmit);
     dlg.addEventListener("cancel", onCancel);
@@ -670,39 +671,83 @@ function renderChanges() {
 
   const tb = $("changes");
   tb.replaceChildren();
-  for (const ch of rows) {
-    const si = stInfo(ch);
-    const can = localChange(ch);
-    const box = el("input", { type: "checkbox", disabled: !can, "aria-label": "Include " + ch.path });
-    box.checked = can && state.checked.has(ch.path);
-    box.onclick = e => {
-      e.stopPropagation();
-      if (box.checked) state.checked.add(ch.path); else state.checked.delete(ch.path);
-      updateChangeButtons();
-    };
-    const fresh = before && !before.has(ch.path) ? " fresh" : "";
-    const tr = el("tr", { class: (ch.path === state.diffPath ? "sel" : "") + fresh, onclick: () => showDiff(ch) },
-      el("td", {}, box),
-      el("td", {}, el("span", { class: "st st-" + si.cls, title: si.label, "aria-hidden": "true" }, si.letter),
-        el("span", { class: "sr-only" }, si.label)),
-      el("td", {}, ch.repoItem ? el("span", { class: "incoming", title: "changed on the server: " + ch.repoItem }, "*") : ""),
-      el("td", { class: "path", title: ch.path + (ch.changelist ? "  (changelist " + ch.changelist + ")" : "") },
-        ch.path + (ch.isDir ? "/" : ""), lockMark(ch.lockState, ch.lock)));
-    tr.ondblclick = () => Go().Open(state.view.path, ch.path);
-    tr.dataset.key = ch.path;
-    tr._move = () => showDiff(ch);
-    if (can) tr._space = () => box.click();
-    tr._enter = () => Go().Open(state.view.path, ch.path);
-    tb.append(tr);
+  // Files in changelists come after the others, under a heading per changelist.
+  const lists = [...new Set(rows.map(c => c.changelist).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+  const groups = lists.length ? [["", rows.filter(c => !c.changelist)], ...lists.map(n => [n, rows.filter(c => c.changelist === n)])] : [["", rows]];
+  for (const [name, members] of groups) {
+    if (lists.length && members.length) tb.append(groupRow(name, members));
+    for (const ch of members) tb.append(changeRow(ch, before, lists.length > 0));
   }
   if (!rows.length) tb.append(el("tr", {}, el("td", { colspan: 4, class: "placeholder" }, "No local changes")));
   rovingRows(tb, hadFocus);
+  afterChanges();
+}
+
+// groupRow is the heading of a changelist in the Changes list (name "": the
+// files in none), with a box that ticks the whole group.
+function groupRow(name, members) {
+  const can = members.filter(localChange);
+  const box = el("input", { type: "checkbox", disabled: !can.length, "aria-label": "Include every file " + (name ? "in changelist " + name : "not in a changelist") });
+  box.checked = can.length > 0 && can.every(c => state.checked.has(c.path));
+  box.indeterminate = !box.checked && can.some(c => state.checked.has(c.path));
+  box.onclick = e => {
+    e.stopPropagation();
+    for (const c of can) if (box.checked) state.checked.add(c.path); else state.checked.delete(c.path);
+    renderChanges();
+  };
+  box._sync = () => {
+    box.checked = can.length > 0 && can.every(c => state.checked.has(c.path));
+    box.indeterminate = !box.checked && can.some(c => state.checked.has(c.path));
+  };
+  const n = members.length === 1 ? "1 file" : members.length + " files";
+  const cells = [el("td", {}, box), el("td", { colspan: 3 },
+    name ? el("span", { class: "clname" }, name) : el("span", {}, "Not in a changelist"), name ? n : "")];
+  if (name) {
+    cells[1].append(el("button", {
+      type: "button", class: "ghost", title: "Take every file out of this changelist (the changes stay)",
+      onclick: e => { e.stopPropagation(); setChangelist(members, ""); },
+    }, "Ungroup"));
+  }
+  const tr = el("tr", { class: "group" }, ...cells);
+  tr._sync = box._sync;
+  tr.dataset.key = "changelist:" + name;
+  tr._space = () => box.click();
+  return tr;
+}
+
+function changeRow(ch, before, grouped) {
+  const si = stInfo(ch);
+  const can = localChange(ch);
+  const box = el("input", { type: "checkbox", disabled: !can, "aria-label": "Include " + ch.path });
+  box.checked = can && state.checked.has(ch.path);
+  box.onclick = e => {
+    e.stopPropagation();
+    if (box.checked) state.checked.add(ch.path); else state.checked.delete(ch.path);
+    updateChangeButtons();
+  };
+  const fresh = before && !before.has(ch.path) ? " fresh" : "";
+  const tr = el("tr", { class: (ch.path === state.diffPath ? "sel" : "") + fresh + (grouped && ch.changelist ? " ingroup" : ""), onclick: () => showDiff(ch) },
+    el("td", {}, box),
+    el("td", {}, el("span", { class: "st st-" + si.cls, title: si.label, "aria-hidden": "true" }, si.letter),
+      el("span", { class: "sr-only" }, si.label)),
+    el("td", {}, ch.repoItem ? el("span", { class: "incoming", title: "changed on the server: " + ch.repoItem }, "*") : ""),
+    el("td", { class: "path", title: ch.path + (ch.changelist ? "  (changelist " + ch.changelist + ")" : "") },
+      ch.path + (ch.isDir ? "/" : ""), lockMark(ch.lockState, ch.lock)));
+  tr.ondblclick = () => Go().Open(state.view.path, ch.path);
+  tr.dataset.key = ch.path;
+  tr._move = () => showDiff(ch);
+  if (can) tr._space = () => box.click();
+  tr._enter = () => Go().Open(state.view.path, ch.path);
+  return tr;
+}
+
+function afterChanges() {
   // The file whose diff is shown has gone from the list (committed, reverted, ignored): clear the diff.
   if (state.diffPath && !state.changes.some(c => c.path === state.diffPath)) {
     state.diffPath = null;
     $("diff").replaceChildren();
     $("diffTitle").textContent = "Pick a file to see its changes";
-    for (const id of ["openFileBtn", "blameFileBtn", "historyFileBtn"]) $(id).hidden = true;
+    for (const id of ["openFileBtn", "blameFileBtn", "historyFileBtn", "propsFileBtn"]) $(id).hidden = true;
   }
   // The banner's guidance is done with once there's nothing left to act on.
   if (state.banner && state.banner.kind === "conflict" && !state.changes.some(c => c.item === "conflicted" || c.props === "conflicted" || c.treeConflict)) clearBanner();
@@ -720,10 +765,12 @@ function updateChangeButtons() {
   const sel = checkedChanges();
   const rows = visibleChanges().filter(localChange);
   $("selAll").checked = rows.length > 0 && rows.every(c => state.checked.has(c.path));
+  for (const tr of $("changes").querySelectorAll(":scope > tr.group")) tr._sync();
   $("commitBtn").disabled = !sel.length;
   $("revertBtn").disabled = !sel.some(c => c.item !== "unversioned");
   $("addBtn").disabled = !sel.some(c => c.item === "unversioned");
   $("ignoreBtn").disabled = !sel.some(c => c.item === "unversioned");
+  $("changelistBtn").disabled = !sel.some(canChangelist);
   $("resolveBox").hidden = !state.changes.some(c => c.item === "conflicted" || c.props === "conflicted" || c.treeConflict);
   $("keepLocksBox").hidden = !sel.some(c => c.lockState === "mine");
 }
@@ -766,14 +813,13 @@ function renderDiff(target, text) {
 
 async function showDiff(ch) {
   state.diffPath = ch.path;
-  for (const tr of $("changes").children) tr.classList.remove("sel");
-  const idx = visibleChanges().indexOf(ch);
-  if (idx >= 0 && $("changes").children[idx]) $("changes").children[idx].classList.add("sel");
+  for (const tr of $("changes").children) tr.classList.toggle("sel", tr.dataset.key === ch.path);
   $("diffTitle").textContent = ch.path;
   $("openFileBtn").hidden = false;
   // only files that are in the repository have a history to blame
   $("blameFileBtn").hidden = ch.isDir || ["unversioned", "added", "replaced", "missing"].includes(ch.item);
   $("historyFileBtn").hidden = ["unversioned", "added", "replaced"].includes(ch.item);
+  $("propsFileBtn").hidden = ["unversioned", "missing", "deleted", "ignored", "obstructed"].includes(ch.item);
   const path = state.view.path;
   $("diff").replaceChildren(el("div", { class: "placeholder" }, "Loading…"));
   try {
@@ -896,6 +942,186 @@ $("resolveBtn").onclick = () => busy($("resolveBtn"), async () => {
   toast(`Resolved ${sel.length} conflict${sel.length === 1 ? "" : "s"}.`, "ok");
   await refreshWc(false);
 });
+
+// ---- Changelists -------------------------------------------------------------------------------
+//
+// Named groups of changed files, to commit separately. svn keeps them in this
+// working copy only; a commit takes the committed files out of theirs.
+
+// canChangelist: only files svn knows about can be in a changelist.
+function canChangelist(c) {
+  return !c.isDir && !["unversioned", "ignored", "external"].includes(c.item);
+}
+
+async function setChangelist(files, name) {
+  try {
+    await call("SetChangelist", state.view.path, files.map(c => c.path), name);
+  } catch (e) { return report(e); }
+  const n = files.length === 1 ? files[0].path : files.length + " files";
+  const from = [...new Set(files.map(c => c.changelist))];
+  toast(name ? `Put ${n} in changelist ${name}.` : `Took ${n} out of ${from.length === 1 ? "changelist " + from[0] : "their changelists"}.`, "ok");
+  await refreshWc(false);
+}
+
+$("changelistBtn").onclick = async () => {
+  const sel = checkedChanges().filter(canChangelist);
+  if (!sel.length) return toast("Tick files that are in svn (not new ones or folders) to group them.");
+  const skipped = checkedChanges().length - sel.length;
+  $("clFiles").textContent = sel.slice(0, 10).map(c => "  " + c.path + (c.changelist ? `  (in ${c.changelist})` : "")).join("\n") +
+    (sel.length > 10 ? `\n  … and ${sel.length - 10} more` : "") +
+    (skipped ? `\n\n${skipped} ticked item${skipped === 1 ? " is" : "s are"} new or a folder and can't be in a changelist.` : "");
+  const names = [...new Set(state.changes.map(c => c.changelist).filter(Boolean))].sort();
+  $("clNames").replaceChildren(...names.map(n => el("option", { value: n })));
+  const common = [...new Set(sel.map(c => c.changelist))];
+  $("clName").value = common.length === 1 && common[0] ? common[0] : "";
+  $("clRemove").hidden = !sel.some(c => c.changelist);
+  for (;;) {
+    const r = ask($("clDlg"));
+    $("clName").select();
+    const how = await r;
+    if (how === "remove") return setChangelist(sel.filter(c => c.changelist), "");
+    if (how !== "ok") return;
+    const name = $("clName").value.trim();
+    if (name) return setChangelist(sel, name);
+    toast("Give the changelist a name.");
+  }
+};
+
+// ---- Properties --------------------------------------------------------------------------------
+
+// What the dialog says about the properties svn knows. file/dir: what they
+// can be set on; bool: on or off (svn stores "*"); choices: the values svn
+// accepts; readonly: svn changes them itself.
+const KNOWN_PROPS = {
+  "svn:ignore": { dir: true, hint: "New files in this folder that svn shouldn't list: one name or pattern per line, e.g. *.o or build." },
+  "svn:global-ignores": { dir: true, hint: "Like svn:ignore, but for this folder and every folder below it." },
+  "svn:externals": { dir: true, hint: "Folders from elsewhere fetched into this one when updating, one per line: a URL and a folder name, e.g. ^/libs/common/trunk common" },
+  "svn:needs-lock": { file: true, bool: true, hint: "The file stays read-only until someone locks it, so two people can't edit it at once. For files that can't be merged: CAD, images, Office documents." },
+  "svn:executable": { file: true, bool: true, hint: "The file can be run as a program (on Linux and macOS)." },
+  "svn:eol-style": { file: true, choices: ["native", "LF", "CRLF", "CR"], hint: "Line endings. native gives each person their system's (LF on Linux and macOS, CRLF on Windows)." },
+  "svn:mime-type": { file: true, hint: "The file's type. application/octet-stream marks it binary (no diffs, merges or blame); text/plain marks it as text." },
+  "svn:keywords": { file: true, hint: "Words svn fills in inside the file, e.g. Id Rev Date Author: $Id$ becomes the last change's details." },
+  "svn:mergeinfo": { readonly: true, hint: "Records what was merged here. Merging changes it; it isn't edited by hand." },
+  "svn:special": { readonly: true, hint: "Marks a symbolic link. svn sets it itself." },
+};
+
+let props = null; // the dialog's state: {rel, isDir, rows: [{name, orig, value, removed, custom}]}
+
+async function openProps(rel) {
+  let res;
+  try { res = await call("Props", state.view.path, rel); } catch (e) { return report(e); }
+  props = { rel, isDir: res.isDir, rows: res.props.map(p => ({ name: p.name, orig: p.value, value: p.value, removed: false })) };
+  $("propsTitle").textContent = "Properties of " + (rel === "." ? "the top folder" : rel + (res.isDir ? "/" : ""));
+  renderProps();
+  for (;;) {
+    const r = await ask($("propsDlg"));
+    if (r !== "ok") { props = null; return; }
+    let set;
+    try { set = propChanges(); } catch (msg) { toast(msg); continue; }
+    if (!Object.keys(set).length) { props = null; return; }
+    try {
+      await call("SetProps", state.view.path, rel, set);
+    } catch (e) { report(e); continue; } // the dialog opens again with the edits kept
+    props = null;
+    state.checked.add(rel);
+    state.known.add(rel);
+    await refreshWc(false);
+    if (state.diffPath === rel) { const c = state.changes.find(c => c.path === rel); if (c) showDiff(c); }
+    const what = rel === "." ? "the top folder" : rel;
+    setBanner("info", `The properties of ${what} changed: it's ticked, so commit it and everyone gets them.`);
+    return;
+  }
+}
+
+// propChanges is what to send to SetProps: name → new value, "" to remove.
+// It throws a message for the user when something isn't filled in right.
+function propChanges() {
+  const set = {};
+  const seen = new Set();
+  for (const r of props.rows) {
+    const name = r.name.trim();
+    if (r.removed) {
+      if (r.orig !== null) set[name] = "";
+      continue;
+    }
+    if (!name) throw "Give the new property a name, or remove it.";
+    if (seen.has(name)) throw `${name} is in the list twice.`;
+    seen.add(name);
+    const k = KNOWN_PROPS[name] || {};
+    if (k.readonly) continue;
+    const value = k.bool ? "*" : r.value;
+    if (!value.trim()) throw `Give ${name} a value, or remove it.`;
+    if (value !== r.orig) set[name] = value;
+  }
+  return set;
+}
+
+function renderProps() {
+  const list = $("propsList");
+  list.replaceChildren();
+  if (!props.rows.length) list.append(el("p", { class: "empty" }, "No properties set. Add one below."));
+  for (const r of props.rows) {
+    const k = KNOWN_PROPS[r.name] || {};
+    const head = el("div", { class: "head" });
+    if (r.custom) {
+      const name = el("input", { class: "name", placeholder: "Property name, e.g. team:owner", "aria-label": "Property name", value: r.name, autocomplete: "off" });
+      name.oninput = () => { r.name = name.value; };
+      head.append(name);
+    } else {
+      head.append(el("span", { class: "name" }, r.name));
+    }
+    if (!k.readonly) {
+      const rm = el("button", { type: "button", class: "ghost" }, r.removed ? "Keep" : "Remove");
+      rm.onclick = () => {
+        if (r.orig === null) props.rows.splice(props.rows.indexOf(r), 1); else r.removed = !r.removed;
+        renderProps();
+      };
+      head.append(rm);
+    }
+    const box = el("div", { class: "prop" + (r.removed ? " removed" : "") }, head);
+    if (k.bool) {
+      box.append(el("span", {}, r.removed ? "Off" : "On"));
+    } else if (k.choices) {
+      const sel = el("select", { "aria-label": r.name, disabled: r.removed });
+      const opts = k.choices.includes(r.value) || !r.value ? k.choices : [r.value, ...k.choices];
+      sel.append(...opts.map(c => el("option", { value: c }, c)));
+      sel.value = r.value || k.choices[0];
+      r.value = sel.value;
+      sel.onchange = () => { r.value = sel.value; };
+      box.append(sel);
+    } else {
+      const lines = r.value.split("\n").length;
+      const ta = el("textarea", { "aria-label": (r.name || "New property") + " value", rows: Math.min(Math.max(lines, 1), 10), readonly: !!k.readonly || r.removed, spellcheck: "false" });
+      ta.value = r.value;
+      ta.oninput = () => { r.value = ta.value; };
+      box.append(ta);
+    }
+    if (k.hint) box.append(el("div", { class: "hint" }, k.hint));
+    list.append(box);
+  }
+  // The add menu: the properties svn knows that fit this file or folder and aren't set, and any other.
+  const have = new Set(props.rows.map(r => r.name));
+  const add = $("propsAdd");
+  add.replaceChildren(el("option", { value: "" }, "Add a property…"),
+    ...Object.entries(KNOWN_PROPS).filter(([n, k]) => !k.readonly && !have.has(n) && (props.isDir ? k.dir : k.file))
+      .map(([n]) => el("option", { value: n }, n)),
+    el("option", { value: "*" }, "Another (type its name)…"));
+  add.value = "";
+}
+
+$("propsAdd").onchange = () => {
+  const v = $("propsAdd").value;
+  if (!v || !props) return;
+  const custom = v === "*";
+  props.rows.push({ name: custom ? "" : v, orig: null, value: "", removed: false, custom });
+  renderProps();
+  const last = $("propsList").lastElementChild;
+  const f = last && last.querySelector(custom ? "input" : "textarea, select");
+  if (f) f.focus();
+};
+
+$("propsFileBtn").onclick = () => state.diffPath && openProps(state.diffPath);
+$("propsTopBtn").onclick = () => state.view && openProps(".");
 
 // ---- Working copy buttons ----------------------------------------------------------------
 

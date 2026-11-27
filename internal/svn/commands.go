@@ -163,7 +163,7 @@ func (c *Client) Status(ctx context.Context, o Opts, wc string, remote bool) ([]
 			repoLock = e.Repo.Lock
 		}
 		ch.LockState, ch.Lock = lockState(e.WC.Lock.lock(), repoLock.lock(), remote)
-		if ch.Item == "normal" && (ch.Props == "none" || ch.Props == "normal") && !ch.TreeConflict && ch.RepoItem == "" && !ch.Locked && ch.LockState == "" {
+		if ch.Item == "normal" && (ch.Props == "none" || ch.Props == "normal") && !ch.TreeConflict && ch.RepoItem == "" && !ch.Locked && ch.LockState == "" && cl == "" {
 			return // only shown because -u was given and nothing differs
 		}
 		if st, err := os.Stat(filepath.Join(root, filepath.FromSlash(ch.Path))); err == nil {
@@ -344,6 +344,9 @@ func (c *Client) Diff(ctx context.Context, o Opts, target string, rev int) (stri
 	args := []string{"diff", "--internal-diff", "-x", "-u"}
 	if rev > 0 {
 		args = append(args, "-c", strconv.Itoa(rev))
+	} else {
+		// A local folder: its own change (properties), not every file in it.
+		args = append(args, "--depth", "empty")
 	}
 	out, err := c.run(ctx, o, nil, append(args, "--", target)...)
 	if err != nil {

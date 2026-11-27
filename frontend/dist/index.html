@@ -59,6 +59,22 @@
   table.list tr { cursor: default; }
   table.list tbody tr:hover { background: var(--panel); }
   table.list tr.sel { background: var(--cyan-tint); }
+  /* A changelist's heading row in the Changes list */
+  table.list tr.group td { background: var(--bg); color: var(--ink-dim); font-size: 12px; padding-top: 8px; border-bottom-color: var(--line); }
+  table.list tr.group .clname { color: var(--cyan); font-weight: 600; margin-right: 8px; }
+  table.list tr.group button { padding: 0 6px; font-size: 12px; margin-left: 8px; }
+  table.list tr.ingroup td.path { padding-left: 18px; }
+  /* The properties dialog: one block per property */
+  .props { display: flex; flex-direction: column; gap: 8px; max-height: 55vh; overflow: auto; }
+  .props .prop { border: 1px solid var(--line); border-radius: var(--radius); padding: 8px; display: flex; flex-direction: column; gap: 6px; }
+  .props .prop.removed { opacity: .5; }
+  .props .prop.removed :is(textarea, select, input:not([type=checkbox])) { text-decoration: line-through; }
+  .props .head { display: flex; align-items: center; gap: 8px; }
+  .props .head .name { font-weight: 600; flex: 1; overflow-wrap: anywhere; }
+  .props .head input.name { font-weight: 400; }
+  .props textarea { width: 100%; min-height: 34px; resize: vertical; font-family: var(--mono); }
+  .props .hint { font-size: 12px; color: var(--ink-dim); line-height: 1.45; }
+  .props .empty { color: var(--ink-dim); }
   table.list td.path { overflow: hidden; text-overflow: ellipsis; max-width: 1px; width: 100%; }
   table.list td.msg { overflow: hidden; text-overflow: ellipsis; max-width: 1px; width: 100%; }
   .st { display: inline-block; min-width: 1.6em; text-align: center; font-weight: 700; }
@@ -317,6 +333,7 @@
           <button id="checkBtn" title="Ask the server what an update would bring (svn status -u)">Check the server for changes</button>
           <button id="browseWcBtn">Browse the repository</button>
           <button id="openWcBtn">Open the folder</button>
+          <button id="propsTopBtn" title="svn properties of the working copy's top folder: ignore lists, externals…">Properties of the top folder</button>
           <button id="cleanupBtn" title="svn cleanup: release a working copy locked by an interrupted operation">Clean up (after an interrupted operation)</button>
           <hr>
           <button class="danger" id="removeWcBtn" title="The files stay on disk">Remove from the list</button>
@@ -351,6 +368,7 @@
               <button class="danger" id="revertBtn" title="Throw away local changes to the ticked files">Revert</button>
               <button id="addBtn" title="svn add the ticked unversioned files">Add</button>
               <button id="ignoreBtn" title="Stop the ticked new files (build output, logs…) showing up here">Ignore…</button>
+              <button id="changelistBtn" title="Group the ticked files under a name, to commit them apart from your other changes">Changelist…</button>
               <span id="resolveBox" hidden>
                 <select id="resolveHow" aria-label="How to resolve the ticked conflicts">
                   <option value="" selected disabled>Choose how to resolve…</option>
@@ -365,7 +383,7 @@
         </div>
         <div class="pane">
           <div class="toolbar"><span id="diffTitle" class="muted">Pick a file to see its changes</span>
-            <span style="flex:1"></span><button class="ghost" id="historyFileBtn" hidden title="The commits that changed this file">History</button><button class="ghost" id="blameFileBtn" hidden title="Who last changed each line">Blame</button><button class="ghost" id="openFileBtn" hidden>Open file</button></div>
+            <span style="flex:1"></span><button class="ghost" id="propsFileBtn" hidden title="svn properties: line endings, needs-lock, ignore lists…">Properties</button><button class="ghost" id="historyFileBtn" hidden title="The commits that changed this file">History</button><button class="ghost" id="blameFileBtn" hidden title="Who last changed each line">Blame</button><button class="ghost" id="openFileBtn" hidden>Open file</button></div>
           <div class="scroll"><div id="diff" class="diff"></div></div>
         </div>
       </div>
@@ -579,6 +597,26 @@
   <label style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="ignoreRecursive"> In subfolders too</label>
   <p class="muted">This changes the folder's ignore list (a property). Commit that change so everyone ignores the same files.</p>
   <div class="actions"><button value="cancel" formnovalidate>Cancel</button><button class="primary" value="ok">Ignore</button></div>
+</form></dialog>
+
+<dialog id="clDlg"><form method="dialog">
+  <h3>Changelist</h3>
+  <p>A changelist groups files under a name, so you can tick and commit them together, apart from your other changes. Only this working copy knows about it; committing a file takes it out.</p>
+  <p id="clFiles" style="white-space:pre-wrap"></p>
+  <div class="field"><label for="clName">Name</label>
+    <input id="clName" list="clNames" maxlength="60" autocomplete="off" placeholder="e.g. login fix"><datalist id="clNames"></datalist></div>
+  <!-- "Put in" comes first in the page so Enter presses it; "Take out" is drawn first -->
+  <div class="actions"><button value="cancel" formnovalidate>Cancel</button><button class="primary" value="ok">Put in changelist</button><button value="remove" id="clRemove" formnovalidate style="order:-1;margin-right:auto">Take out of its changelist</button></div>
+</form></dialog>
+
+<dialog id="propsDlg" style="width:min(640px,94vw)"><form method="dialog">
+  <h3 id="propsTitle">Properties</h3>
+  <p>Settings svn keeps with a file or folder. Changes here are local: commit them so everyone gets them.</p>
+  <div id="propsList" class="props"></div>
+  <div class="row">
+    <select id="propsAdd" aria-label="Add a property"></select>
+  </div>
+  <div class="actions"><button value="cancel" formnovalidate>Cancel</button><button class="primary" value="ok">Save</button></div>
 </form></dialog>
 
 <dialog id="lockDlg"><form method="dialog">

@@ -98,12 +98,13 @@ var (
 	certCodes     = []string{"E230001"}
 	conflictCodes = []string{"E155011", "E160028", "E170004", "E155015", "E160024"}
 	lockedCodes   = []string{"E155004", "E155037"}
-	// W160035: already locked by someone else; E200009: some locks weren't
-	// obtained; E160037: committing a file whose lock was taken over (same
+	// W160035: already locked by someone else (with E200009, "some locks
+	// weren't obtained", which alone is svn's generic "illegal target" and so
+	// isn't listed); E160037: committing a file whose lock was taken over (same
 	// user, another working copy); E160039: committing or unlocking a file
 	// another user has locked; E195022: unlocking a file locked by someone else.
 	needUpdateCodes   = []string{"E195020"} // can't merge into a mixed-revision working copy
-	lockConflictCodes = []string{"W160035", "E200009", "E160037", "E160039", "E195022"}
+	lockConflictCodes = []string{"W160035", "E160037", "E160039", "E195022"}
 )
 
 func newError(stderr string, err error) *Error {
