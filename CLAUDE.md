@@ -67,10 +67,15 @@ rebuild after editing `frontend/dist`.
 
 - **Updates** (`internal/update`): releases come from GitHub (`update.Repo`).
   An update is only installed after its SHA-256 matches the release's
-  `SHA256SUMS`; keep that check. The asset names in `AssetName` and in the
-  Makefile's `dist` target must match. A build's version and install kind
-  (deb, windows, msi, source) are stamped by the Makefile; a plain `go build` has
+  `SHA256SUMS`; keep that check. The asset names in `AssetName` (per install
+  kind and processor) and in `packaging/dist.sh` must match, and the x64
+  names must stay as they are: older installed copies look for them. A
+  build's version and install kind (deb, rpm, windows, msi, source) are
+  stamped by `packaging/dist.sh` and the Makefile; a plain `go build` has
   neither and never offers updates.
+- **Processors**: Linux packages are built natively on x64 and ARM64 (cgo:
+  GTK and WebKit can't be cross-built); Windows is cross-built for both. The
+  release workflow runs the Linux half on GitHub's ARM64 runner.
 - **Releases**: `make release V=vX.Y.Z NOTES="..."` only when the user asks; it
   publishes to everyone who has the app installed. Don't leave a `make dist
   TAG=v9.9.9` package installed: it would never accept a real release.

@@ -1,5 +1,5 @@
 # Tests and vets every push and pull request: on Linux (with the Windows
-# cross-build), and on Windows itself.
+# cross-build) and on Windows itself, each on x64 and ARM64.
 name: CI
 
 on:
@@ -9,7 +9,10 @@ on:
 
 jobs:
   test:
-    runs-on: ubuntu-24.04
+    strategy:
+      matrix:
+        runner: [ubuntu-24.04, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
 
@@ -27,9 +30,13 @@ jobs:
       - run: make app windows
 
   # The tests on Windows itself: drive letters, svn.exe (which expands
-  # wildcards in its arguments), CRLF output, file:///C:/ URLs.
+  # wildcards in its arguments and writes paths in the ANSI code page), CRLF
+  # output, file:///C:/ URLs.
   test-windows:
-    runs-on: windows-2025
+    strategy:
+      matrix:
+        runner: [windows-2025, windows-11-arm]
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
 
@@ -37,8 +44,21 @@ jobs:
         with:
           go-version-file: go.mod
 
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      # SlikSVN is an x64 build: on ARM64 Windows it runs emulated, as it
+      # would for anyone who installs it there.
       - name: Install svn (SlikSVN, with svnadmin)
         run: |
+          if (-not (Get-Command choco -ErrorAction SilentlyContinue)) {
+            Set-ExecutionPolicy Bypass -Scope Process -Force
+            [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor 3072
+            Invoke-Expression ((New-Object Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
+            "$env:ProgramData\chocolatey\bin" | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
+            $env:Path += ";$env:ProgramData\chocolatey\bin"
+          }
           choco install sliksvn --no-progress -y
           "C:\Program Files\SlikSvn\bin" | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
 
@@ -47,5 +67,5 @@ jobs:
       - run: go test ./...
       - name: Build
         run: |
-          python packaging/windows/make_syso.py 0.0.0 amd64
+          python packaging/windows/make_syso.py 0.0.0 (go env GOARCH)
           go build -tags desktop,production -ldflags "-H windowsgui" -o trunkline.exe .

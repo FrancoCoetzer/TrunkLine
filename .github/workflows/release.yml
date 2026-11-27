@@ -1,22 +1,39 @@
-# Pushing a vX.Y.Z tag (make release) builds the .deb, the Windows setup and
-# SHA256SUMS, and publishes them as a GitHub release with the tag's message
-# as its notes. Installed copies of TrunkLine then offer the update.
+# Pushing a vX.Y.Z tag (make release) builds the release files and publishes
+# them as a GitHub release with the tag's message as its notes. Installed
+# copies of TrunkLine then offer the update.
+#
+#   linux     .deb and .rpm, built on an x64 and an ARM64 machine (the app
+#             links GTK and WebKit, so it isn't cross-built), after the tests
+#   windows   the setups (x64, ARM64) and the .msi (x64), cross-built
+#   publish   SHA256SUMS of all of them, and the release
+#
+# Run by hand (Actions, Release, Run workflow), it builds a test set with a
+# made-up version and keeps it as the run's artifacts, publishing nothing.
 name: Release
 
 on:
   push:
     tags: ["v*.*.*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Version for the test build (vX.Y.Z; nothing is published)"
+        default: "v9.9.9"
 
 permissions:
   contents: write # to publish the release
 
+env:
+  TAG: ${{ github.event_name == 'push' && github.ref_name || inputs.tag }}
+
 jobs:
-  release:
-    runs-on: ubuntu-24.04
+  linux:
+    strategy:
+      matrix:
+        runner: [ubuntu-24.04, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
       - uses: actions/setup-go@v5
         with:
@@ -25,18 +42,67 @@ jobs:
       - name: Install build tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev nsis wixl subversion
+          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev subversion rpm
 
-      - name: Build the release files
-        run: make dist TAG="$GITHUB_REF_NAME"
+      - run: make test
+      - run: make dist-linux TAG="$TAG"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-${{ matrix.runner }}
+          path: build/dist/*
+          if-no-files-found: error
+
+  windows:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Install build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y nsis wixl
+
+      - run: make dist-windows TAG="$TAG"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-windows
+          path: build/dist/*
+          if-no-files-found: error
+
+  publish:
+    needs: [linux, windows]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: dist-*
+          path: build/dist
+          merge-multiple: true
+
+      - run: packaging/dist.sh sums
+
+      - uses: actions/upload-artifact@v4
+        if: github.event_name != 'push'
+        with:
+          name: release-files
+          path: build/dist/*
 
       - name: Publish the release
+        if: github.event_name == 'push'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           # actions/checkout leaves the pushed tag without its message; fetch
           # the annotated tag itself so --notes-from-tag uses NOTES.
-          git fetch --force origin "refs/tags/$GITHUB_REF_NAME:refs/tags/$GITHUB_REF_NAME"
-          [[ $(git cat-file -t "$GITHUB_REF_NAME") == "tag" ]] || { echo "$GITHUB_REF_NAME is not an annotated tag"; exit 1; }
-          gh release create "$GITHUB_REF_NAME" build/dist/* \
-            --title "TrunkLine $GITHUB_REF_NAME" --notes-from-tag --verify-tag
+          git fetch --force origin "refs/tags/$TAG:refs/tags/$TAG"
+          [[ $(git cat-file -t "$TAG") == "tag" ]] || { echo "$TAG is not an annotated tag"; exit 1; }
+          gh release create "$TAG" build/dist/* \
+            --title "TrunkLine $TAG" --notes-from-tag --verify-tag

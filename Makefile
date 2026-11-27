@@ -2,8 +2,8 @@
 #
 # Building on Linux needs libgtk-3-dev and libwebkit2gtk-4.1-dev. The tests
 # and the app need the svn client at run time (svnadmin too, for the tests).
-# make dist also needs nsis (makensis) and wixl for the Windows
-# setup and .msi.
+# make dist also needs rpm (rpmbuild) for the .rpm, and nsis (makensis) and
+# wixl for the Windows setups and .msi.
 
 SHELL      := /bin/bash
 VERSION    := $(shell git describe --tags --match 'v[0-9]*' --dirty --always 2>/dev/null)
@@ -12,7 +12,7 @@ LINUX_TAGS := $(APP_TAGS),webkit2_41
 # STAMP(version, install kind): what the updater knows about this build.
 STAMP       = -X trunkline/internal/update.Version=$(1) -X trunkline/internal/update.Install=$(2)
 
-.PHONY: all app run dev windows winres test vet install-desktop dist release clean
+.PHONY: all app run dev windows winres test vet install-desktop dist dist-linux dist-windows release clean
 
 all: test app
 
@@ -58,32 +58,26 @@ install-desktop: app
 		"$(CURDIR)/build/bin/trunkline" "$(CURDIR)/packaging/trunkline.svg" > $(HOME)/.local/share/applications/trunkline-dev.desktop
 	@echo "Installed ~/.local/share/applications/trunkline-dev.desktop"
 
-# The release files for TAG (default: the tag at HEAD) in build/dist: the
-# .deb, the Windows setup and SHA256SUMS. The release workflow runs this;
-# TAG=v9.9.9 makes a local test set from any commit (don't install it: it
-# would never accept a real release as an update).
+# The release files for TAG (default: the tag at HEAD) in build/dist, by
+# packaging/dist.sh: .deb and .rpm for this machine's processor, the Windows
+# setups (x64, ARM64) and .msi (x64), and SHA256SUMS. The release workflow
+# builds the Linux files on an x64 and an ARM64 machine (dist-linux), the
+# Windows ones (dist-windows), then the sums. TAG=v9.9.9 makes a local test
+# set from any commit (don't install it: it would never accept a real
+# release as an update).
+DIST_TAG = $(or $(TAG),$(shell git describe --tags --match 'v[0-9]*' --exact-match 2>/dev/null))
+
 dist: test
-	@tag="$(TAG)"; [[ -n $$tag ]] || tag=$$(git describe --tags --match 'v[0-9]*' --exact-match 2>/dev/null) || \
-		{ echo "HEAD is not at a release tag: use make release, or TAG=vX.Y.Z for a test build"; exit 1; }; \
-	[[ $$tag =~ ^v[0-9]+\.[0-9]+\.[0-9]+$$ ]] || { echo "$$tag is not a vX.Y.Z tag"; exit 1; }; \
-	command -v makensis >/dev/null || { echo "makensis not found: sudo apt install nsis"; exit 1; }; \
-	command -v wixl >/dev/null || { echo "wixl not found: sudo apt install wixl"; exit 1; }; \
-	set -e; v=$${tag#v}; rm -rf build/dist build/stage; mkdir -p build/dist build/stage; \
-	echo "== $$tag: Linux"; \
-	go build -tags $(LINUX_TAGS) -ldflags "-s -w $(call STAMP,$$tag,deb)" -o build/stage/trunkline .; \
-	packaging/linux/build-deb.sh $$tag build/stage/trunkline build/dist/trunkline_$${v}_amd64.deb; \
-	echo "== $$tag: Windows"; \
-	python3 packaging/windows/make_syso.py $$v amd64; \
-	GOOS=windows GOARCH=amd64 go build -tags $(APP_TAGS) -ldflags "-s -w -H windowsgui $(call STAMP,$$tag,windows)" -o build/stage/trunkline.exe .; \
-	makensis -V2 -DVERSION=$$v -DAPPEXE=$(CURDIR)/build/stage/trunkline.exe -DLICENSEFILE=$(CURDIR)/LICENSE \
-		-DICONFILE=$(CURDIR)/packaging/windows/trunkline.ico \
-		-DOUTFILE=$(CURDIR)/build/dist/trunkline-$$v-setup.exe packaging/windows/installer.nsi; \
-	echo "== $$tag: Windows .msi"; \
-	mkdir -p build/stage/msi; \
-	GOOS=windows GOARCH=amd64 go build -tags $(APP_TAGS) -ldflags "-s -w -H windowsgui $(call STAMP,$$tag,msi)" -o build/stage/msi/trunkline.exe .; \
-	wixl -a x64 -D Version=$$v -D AppExe=$(CURDIR)/build/stage/msi/trunkline.exe -D License=$(CURDIR)/LICENSE \
-		-D Icon=$(CURDIR)/packaging/windows/trunkline.ico -o build/dist/trunkline-$$v-x64.msi packaging/windows/trunkline.wxs; \
-	cd build/dist && sha256sum -- * > SHA256SUMS && ls -l
+	rm -rf build/dist build/stage
+	packaging/dist.sh linux '$(DIST_TAG)'
+	packaging/dist.sh windows '$(DIST_TAG)'
+	packaging/dist.sh sums
+
+dist-linux:
+	packaging/dist.sh linux '$(DIST_TAG)'
+
+dist-windows:
+	packaging/dist.sh windows '$(DIST_TAG)'
 
 # Tag a release and push it: GitHub Actions (.github/workflows/release.yml)
 # builds the files and publishes the release, and installed copies offer it.

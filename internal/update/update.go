@@ -8,6 +8,8 @@
 //
 //   - "deb": installed from the .deb. Downloads the new .deb and installs it
 //     with apt through pkexec (one password prompt).
+//   - "rpm": installed from the .rpm (Fedora, openSUSE). The same, with dnf
+//     or zypper.
 //   - "windows": installed by the setup .exe into the user's folder.
 //     Downloads the new setup and runs it silently; the setup closes the
 //     app, replaces it and starts it again.
@@ -35,6 +37,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -46,7 +49,7 @@ var (
 	// Version is the release tag for a package ("v0.3.0"), or
 	// `git describe --tags --dirty --always` for a source build.
 	Version string
-	// Install is how this copy was installed: "deb", "windows", "msi" or "source".
+	// Install is how this copy was installed: "deb", "rpm", "windows", "msi" or "source".
 	Install string
 	// Repo is the GitHub owner/name releases come from (a fork sets its own).
 	Repo = "FrancoCoetzer/TrunkLine"
@@ -57,6 +60,7 @@ const (
 	InstallDeb     = "deb"
 	InstallWindows = "windows"
 	InstallMSI     = "msi"
+	InstallRPM     = "rpm"
 	InstallSource  = "source"
 )
 
@@ -96,16 +100,29 @@ func ParseTag(s string) (Semver, bool) {
 	return Semver{n[0], n[1], n[2]}, true
 }
 
-// AssetName is the file a release carries for an install kind. The Makefile
-// (make dist) names the files the same way.
-func AssetName(install string, v Semver) string {
-	switch install {
-	case InstallDeb:
-		return fmt.Sprintf("trunkline_%s_amd64.deb", v.Plain())
-	case InstallWindows:
-		return fmt.Sprintf("trunkline-%s-setup.exe", v.Plain())
-	case InstallMSI:
-		return fmt.Sprintf("trunkline-%s-x64.msi", v.Plain())
+// Arch is the processor this copy runs on, as Go names it (amd64, arm64):
+// the release file for it is the one to install.
+var Arch = runtime.GOARCH
+
+// AssetName is the file a release carries for an install kind on processor
+// arch (Go's name: amd64, arm64), or "" when there is none. The x64 names are
+// the ones releases have always had. packaging/dist.sh names the files the
+// same way.
+func AssetName(install, arch string, v Semver) string {
+	ver := v.Plain()
+	switch {
+	case install == InstallDeb && (arch == "amd64" || arch == "arm64"):
+		return fmt.Sprintf("trunkline_%s_%s.deb", ver, arch) // dpkg's names are Go's
+	case install == InstallRPM && arch == "amd64":
+		return fmt.Sprintf("trunkline-%s-1.x86_64.rpm", ver)
+	case install == InstallRPM && arch == "arm64":
+		return fmt.Sprintf("trunkline-%s-1.aarch64.rpm", ver)
+	case install == InstallWindows && arch == "amd64":
+		return fmt.Sprintf("trunkline-%s-setup.exe", ver)
+	case install == InstallWindows && arch == "arm64":
+		return fmt.Sprintf("trunkline-%s-arm64-setup.exe", ver)
+	case install == InstallMSI && arch == "amd64":
+		return fmt.Sprintf("trunkline-%s-x64.msi", ver) // wixl can't make an ARM64 .msi
 	}
 	return ""
 }
@@ -240,7 +257,7 @@ func parseSums(b []byte) map[string]string {
 // Info is the outcome of a check.
 type Info struct {
 	Current    string   `json:"current"`    // the running version
-	Install    string   `json:"install"`    // deb, windows, msi or source
+	Install    string   `json:"install"`    // deb, rpm, windows, msi or source
 	Latest     string   `json:"latest"`     // the newest release, "" if none
 	Available  bool     `json:"available"`  // Latest is newer than Current
 	CanInstall bool     `json:"canInstall"` // the app can install it itself (not a source build)
@@ -290,7 +307,7 @@ func (g *GitHub) Check(ctx context.Context) (Info, error) {
 			break
 		}
 		if install != InstallSource {
-			if _, ok := r.asset(AssetName(install, v)); !ok {
+			if _, ok := r.asset(AssetName(install, Arch, v)); !ok {
 				continue // released without a file for this install (yet)
 			}
 		}
@@ -333,7 +350,7 @@ func (g *GitHub) Install(ctx context.Context, tag string, progress func(string))
 		return "", fmt.Errorf("release %s not found", tag)
 	}
 	r := rs[i]
-	name := AssetName(install, v)
+	name := AssetName(install, Arch, v)
 	asset, ok := r.asset(name)
 	if !ok {
 		return "", fmt.Errorf("release %s has no %s", tag, name)
@@ -357,9 +374,9 @@ func (g *GitHub) Install(ctx context.Context, tag string, progress func(string))
 	}
 
 	// apt reads the .deb as its own unprivileged user, so the folder must be
-	// readable by everyone; the setup goes in the user's cache.
+	// readable by everyone (the .rpm's too); the setup goes in the user's cache.
 	var dir string
-	if install == InstallDeb {
+	if install == InstallDeb || install == InstallRPM {
 		dir, err = os.MkdirTemp("", "trunkline-update-")
 		if err == nil {
 			err = os.Chmod(dir, 0o755)
@@ -385,6 +402,9 @@ func (g *GitHub) Install(ctx context.Context, tag string, progress func(string))
 	case InstallDeb:
 		defer os.RemoveAll(dir)
 		return installDeb(ctx, file, progress)
+	case InstallRPM:
+		defer os.RemoveAll(dir)
+		return installRPM(ctx, file, progress)
 	case InstallWindows:
 		// The setup closes this app, so the folder is removed on the next start (CleanupOld).
 		progress("Installing (TrunkLine closes and starts again)")
@@ -429,6 +449,40 @@ func installDeb(ctx context.Context, deb string, progress func(string)) (string,
 		return "", fmt.Errorf("apt-get install failed: %v\n%s", err, strings.Join(lines[max(0, len(lines)-10):], "\n"))
 	}
 	return "/usr/bin/trunkline", nil
+}
+
+// installRPM installs the .rpm with dnf (Fedora, RHEL) or zypper (openSUSE)
+// through pkexec, so new dependencies come along. The package isn't signed:
+// its SHA-256 was checked against the release's SHA256SUMS instead.
+func installRPM(ctx context.Context, rpm string, progress func(string)) (string, error) {
+	if _, err := exec.LookPath("pkexec"); err != nil {
+		return "", errors.New("pkexec is not installed: download the .rpm from the release page and install it with dnf or zypper")
+	}
+	var args []string
+	switch {
+	case fileExists("/usr/bin/dnf"):
+		args = []string{"/usr/bin/dnf", "install", "-y", rpm}
+	case fileExists("/usr/bin/zypper"):
+		args = []string{"/usr/bin/zypper", "--non-interactive", "install", "--allow-unsigned-rpm", rpm}
+	default:
+		return "", errors.New("neither dnf nor zypper was found: install the .rpm from the release page by hand")
+	}
+	progress("Installing (asks for your password)")
+	out, err := exec.CommandContext(ctx, "pkexec", args...).CombinedOutput()
+	if err != nil {
+		var ee *exec.ExitError
+		if errors.As(err, &ee) && (ee.ExitCode() == 126 || ee.ExitCode() == 127) {
+			return "", errors.New("canceled: the password prompt was dismissed or refused")
+		}
+		lines := strings.Split(strings.TrimSpace(string(out)), "\n")
+		return "", fmt.Errorf("%s install failed: %v\n%s", filepath.Base(args[0]), err, strings.Join(lines[max(0, len(lines)-10):], "\n"))
+	}
+	return "/usr/bin/trunkline", nil
+}
+
+func fileExists(p string) bool {
+	_, err := os.Stat(p)
+	return err == nil
 }
 
 func cacheDir() (string, error) {

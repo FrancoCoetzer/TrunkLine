@@ -1,15 +1,16 @@
 #!/bin/bash
-# Builds the .deb from a binary make dist already built.
-#   build-deb.sh <vX.Y.Z> <trunkline binary> <out.deb>
+# Builds the .deb from a binary packaging/dist.sh already built.
+#   build-deb.sh <vX.Y.Z> <trunkline binary> <out.deb> <amd64|arm64>
 set -euo pipefail
 
-if (( $# != 3 )); then
-  echo "usage: build-deb.sh <vX.Y.Z> <trunkline binary> <out.deb>" >&2
+if (( $# != 4 )); then
+  echo "usage: build-deb.sh <vX.Y.Z> <trunkline binary> <out.deb> <amd64|arm64>" >&2
   exit 1
 fi
 tag=$1
 bin=$2
 out=$3
+arch=$4
 version=${tag#v}
 here=$(cd "$(dirname "$0")" && pwd)
 root=$(mktemp -d)
@@ -26,7 +27,7 @@ mkdir -p "$root/DEBIAN"
 cat > "$root/DEBIAN/control" <<CONTROL
 Package: trunkline
 Version: $version
-Architecture: amd64
+Architecture: $arch
 Maintainer: Franco Coetzer <franco.coetzer@gmail.com>
 Installed-Size: $size
 Depends: libgtk-3-0t64 | libgtk-3-0, libwebkit2gtk-4.1-0, subversion

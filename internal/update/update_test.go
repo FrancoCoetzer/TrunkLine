@@ -46,9 +46,9 @@ func fakeGitHub(t *testing.T, releases []Release, files map[string]string) *GitH
 
 func stamp(t *testing.T, version, install string) {
 	t.Helper()
-	v, i := Version, Install
-	Version, Install = version, install
-	t.Cleanup(func() { Version, Install = v, i })
+	v, i, a := Version, Install, Arch
+	Version, Install, Arch = version, install, "amd64" // the file names below are x64's
+	t.Cleanup(func() { Version, Install, Arch = v, i, a })
 }
 
 func assets(names ...string) []Asset {
@@ -85,6 +85,13 @@ func TestCheck(t *testing.T) {
 	stamp(t, "v0.1.0", InstallWindows)
 	if info, _ := g.Check(ctx); info.Latest != "v0.2.0" || len(info.Notes) != 1 {
 		t.Errorf("windows: %+v", info)
+	}
+
+	// An ARM64 copy is only offered a release with an ARM64 file (these have none).
+	stamp(t, "v0.1.0", InstallDeb)
+	Arch = "arm64"
+	if info, _ := g.Check(ctx); info.Available {
+		t.Errorf("arm64 offered an x64 package: %+v", info)
 	}
 
 	stamp(t, "v0.3.0", InstallDeb)
@@ -166,12 +173,20 @@ func TestParseTag(t *testing.T) {
 
 func TestAssetNames(t *testing.T) {
 	v := Semver{1, 2, 3}
-	for kind, want := range map[string]string{
-		InstallDeb: "trunkline_1.2.3_amd64.deb", InstallWindows: "trunkline-1.2.3-setup.exe",
-		InstallMSI: "trunkline-1.2.3-x64.msi", InstallSource: "",
+	for _, c := range []struct{ kind, arch, want string }{
+		{InstallDeb, "amd64", "trunkline_1.2.3_amd64.deb"},
+		{InstallDeb, "arm64", "trunkline_1.2.3_arm64.deb"},
+		{InstallRPM, "amd64", "trunkline-1.2.3-1.x86_64.rpm"},
+		{InstallRPM, "arm64", "trunkline-1.2.3-1.aarch64.rpm"},
+		{InstallWindows, "amd64", "trunkline-1.2.3-setup.exe"},
+		{InstallWindows, "arm64", "trunkline-1.2.3-arm64-setup.exe"},
+		{InstallMSI, "amd64", "trunkline-1.2.3-x64.msi"},
+		{InstallMSI, "arm64", ""},
+		{InstallDeb, "riscv64", ""},
+		{InstallSource, "amd64", ""},
 	} {
-		if got := AssetName(kind, v); got != want {
-			t.Errorf("AssetName(%s) = %q, want %q", kind, got, want)
+		if got := AssetName(c.kind, c.arch, v); got != c.want {
+			t.Errorf("AssetName(%s, %s) = %q, want %q", c.kind, c.arch, got, c.want)
 		}
 	}
 }

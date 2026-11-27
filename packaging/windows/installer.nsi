@@ -1,12 +1,29 @@
-; TrunkLine's Windows setup. Built by make dist:
-;   makensis -DVERSION=X.Y.Z -DAPPEXE=<trunkline.exe> -DLICENSEFILE=<LICENSE> -DICONFILE=<trunkline.ico> -DOUTFILE=<setup.exe> installer.nsi
+; TrunkLine's Windows setup. Built by packaging/dist.sh:
+;   makensis -DVERSION=X.Y.Z -DAPPEXE=<trunkline.exe> -DAPPARCH=amd64|arm64 -DLICENSEFILE=<LICENSE> -DICONFILE=<trunkline.ico> -DOUTFILE=<setup.exe> installer.nsi
 ; Installs per user (no admin prompt) into %LOCALAPPDATA%\Programs\TrunkLine.
 ; Run with /S (as the app's updater does) it installs silently, then starts
-; the new version.
+; the new version. The setup itself is a 32-bit x86 program, so it runs on
+; any Windows; APPARCH is the program it carries.
 
 Unicode true
 !include "MUI2.nsh"
 !include "LogicLib.nsh"
+!include "x64.nsh"
+
+!ifndef APPARCH
+  !define APPARCH amd64
+!endif
+
+; An ARM64 program can't run on an x64 PC: say so instead of installing it.
+; (The x64 one runs on ARM64 Windows 11, emulated.)
+Function .onInit
+  !if "${APPARCH}" == "arm64"
+    ${IfNot} ${IsNativeARM64}
+      MessageBox MB_ICONSTOP "This is TrunkLine for ARM64 PCs. This PC isn't one: download trunkline-${VERSION}-setup.exe instead." /SD IDOK
+      Abort
+    ${EndIf}
+  !endif
+FunctionEnd
 
 !define UNINST "Software\Microsoft\Windows\CurrentVersion\Uninstall\TrunkLine"
 !define WEBVIEW2 "{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}"

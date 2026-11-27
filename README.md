@@ -105,11 +105,16 @@ that works the same on both, built with Go and [Wails](https://wails.io/).
 Download the latest release from the
 [releases page](https://github.com/FrancoCoetzer/TrunkLine/releases):
 
-- **Ubuntu / Debian** (Ubuntu 24.04 or newer): `trunkline_X.Y.Z_amd64.deb`, then
+- **Ubuntu / Debian** (Ubuntu 24.04 or newer): `trunkline_X.Y.Z_amd64.deb`
+  (`_arm64.deb` on ARM, such as a Raspberry Pi 5), then
   `sudo apt install ./trunkline_X.Y.Z_amd64.deb` (this also installs svn).
-- **Windows**: `trunkline-X.Y.Z-setup.exe`. It installs for your user only (no
-  admin rights). The installer isn't code-signed yet, so Windows SmartScreen
-  may warn: click **More info**, then **Run anyway**.
+- **Fedora / openSUSE** (Fedora 40 or newer, openSUSE Tumbleweed):
+  `trunkline-X.Y.Z-1.x86_64.rpm` (`.aarch64.rpm` on ARM), then
+  `sudo dnf install ./trunkline-X.Y.Z-1.x86_64.rpm` (or `sudo zypper install`).
+- **Windows**: `trunkline-X.Y.Z-setup.exe`, or `trunkline-X.Y.Z-arm64-setup.exe`
+  on an ARM PC (such as a Snapdragon laptop). It installs for your user only
+  (no admin rights). The installer isn't code-signed yet, so Windows
+  SmartScreen may warn: click **More info**, then **Run anyway**.
 - **Windows, as an .msi** (for deployment tools): `trunkline-X.Y.Z-x64.msi`.
   Double-clicked, it installs for that user only, like the setup. For
   everyone on the machine, an administrator runs
@@ -144,7 +149,7 @@ make vet        # Linux and Windows
 make dev        # debug build: Inspect in the window, and served on http://localhost:34115
 make install-desktop   # a "TrunkLine (dev)" launcher in the app menu
 make winres     # redraw the Windows icon and installer pictures (after changing packaging/trunkline.svg; needs Pillow)
-make dist TAG=v9.9.9   # a test set of release files in build/dist (needs nsis and wixl)
+make dist TAG=v9.9.9   # a test set of release files in build/dist (needs rpm, nsis and wixl)
 ```
 
 The frontend has no build step: edit `frontend/dist` and rebuild.
@@ -171,7 +176,7 @@ banner. `make dist TAG=v9.9.9` builds the same files locally for testing.
 | `internal/update` | checks GitHub releases, downloads, verifies and installs updates |
 | `internal/config` | saved settings: `~/.config/trunkline/config.json` (`%AppData%\trunkline` on Windows) |
 | `frontend/dist` | `index.html`, `app.js`, and `theme.css` |
-| `packaging` | the icon, the .deb and the Windows setup (NSIS) |
+| `packaging` | the icon, `dist.sh` (release files), the .deb and .rpm, the Windows setup (NSIS) and .msi (wixl) |
 | `.github/workflows` | CI, and the release build |
 
 ## Status
