@@ -11,6 +11,11 @@
 //   - "windows": installed by the setup .exe into the user's folder.
 //     Downloads the new setup and runs it silently; the setup closes the
 //     app, replaces it and starts it again.
+//   - "msi": installed from the .msi. For one user (a double-click: the
+//     default), it downloads the new .msi, and a helper waits for the app
+//     to close, runs msiexec and starts the app again. For all users (an
+//     administrator's msiexec ALLUSERS=1), whoever installed it updates it:
+//     it only says that a new release exists.
 //   - "source" (or unstamped): built from a clone. It only says that a new
 //     release exists; you pull and rebuild yourself.
 package update
@@ -41,7 +46,7 @@ var (
 	// Version is the release tag for a package ("v0.3.0"), or
 	// `git describe --tags --dirty --always` for a source build.
 	Version string
-	// Install is how this copy was installed: "deb", "windows" or "source".
+	// Install is how this copy was installed: "deb", "windows", "msi" or "source".
 	Install string
 	// Repo is the GitHub owner/name releases come from (a fork sets its own).
 	Repo = "FrancoCoetzer/TrunkLine"
@@ -51,6 +56,7 @@ var (
 const (
 	InstallDeb     = "deb"
 	InstallWindows = "windows"
+	InstallMSI     = "msi"
 	InstallSource  = "source"
 )
 
@@ -98,6 +104,8 @@ func AssetName(install string, v Semver) string {
 		return fmt.Sprintf("trunkline_%s_amd64.deb", v.Plain())
 	case InstallWindows:
 		return fmt.Sprintf("trunkline-%s-setup.exe", v.Plain())
+	case InstallMSI:
+		return fmt.Sprintf("trunkline-%s-x64.msi", v.Plain())
 	}
 	return ""
 }
@@ -232,10 +240,11 @@ func parseSums(b []byte) map[string]string {
 // Info is the outcome of a check.
 type Info struct {
 	Current    string   `json:"current"`    // the running version
-	Install    string   `json:"install"`    // deb, windows or source
+	Install    string   `json:"install"`    // deb, windows, msi or source
 	Latest     string   `json:"latest"`     // the newest release, "" if none
 	Available  bool     `json:"available"`  // Latest is newer than Current
 	CanInstall bool     `json:"canInstall"` // the app can install it itself (not a source build)
+	Manual     string   `json:"manual"`     // when it can't: how this copy gets updated
 	Notes      []string `json:"notes"`      // "v0.3.0: summary" for each newer release, newest first
 	URL        string   `json:"url"`        // the newest release's page
 	Note       string   `json:"note"`       // why updates are off, for a development build
@@ -290,7 +299,13 @@ func (g *GitHub) Check(ctx context.Context) (Info, error) {
 		}
 		info.Notes = append(info.Notes, r.Tag+": "+r.Summary())
 	}
-	info.CanInstall = info.Available && install != InstallSource
+	switch {
+	case install == InstallSource:
+		info.Manual = "built from source: pull and rebuild to update"
+	case install == InstallMSI && !perUserMSI():
+		info.Manual = "installed for all users: get the new .msi from the release page, or ask whoever installed it"
+	}
+	info.CanInstall = info.Available && info.Manual == ""
 	return info, nil
 }
 
@@ -305,6 +320,9 @@ func (g *GitHub) Install(ctx context.Context, tag string, progress func(string))
 	}
 	if install == InstallSource {
 		return "", errors.New("this copy was built from source: pull and rebuild it")
+	}
+	if install == InstallMSI && !perUserMSI() {
+		return "", errors.New("this copy was installed for all users: whoever installed it updates it")
 	}
 	rs, err := g.Releases(ctx)
 	if err != nil {
@@ -375,6 +393,21 @@ func (g *GitHub) Install(ctx context.Context, tag string, progress func(string))
 			return "", err
 		}
 		return "", nil
+	case InstallMSI:
+		// The app must have closed before msiexec replaces it, so a helper
+		// waits a little, runs msiexec (a small progress window; the same
+		// one-user or all-users install as now) and starts the app again.
+		exe, err := os.Executable()
+		if err != nil {
+			os.RemoveAll(dir)
+			return "", err
+		}
+		progress("Installing (TrunkLine closes and starts again)")
+		if err := startAfterExit(fmt.Sprintf(`ping -n 3 127.0.0.1 >nul & msiexec /i "%s" /passive /norestart & start "" "%s"`, file, exe)); err != nil {
+			os.RemoveAll(dir)
+			return "", err
+		}
+		return "", nil
 	}
 	return "", fmt.Errorf("no package update for install kind %q", install)
 }
@@ -426,4 +459,16 @@ func Restart(exe string) error {
 		return err
 	}
 	return cmd.Process.Release()
+}
+
+// perUserMSI says whether this copy was installed for one user: the .msi
+// puts it in the user's own programs folder then, and in Program Files for
+// all users.
+func perUserMSI() bool {
+	exe, err := os.Executable()
+	if err != nil {
+		return false
+	}
+	local := os.Getenv("LOCALAPPDATA")
+	return local != "" && strings.HasPrefix(strings.ToLower(exe), strings.ToLower(filepath.Join(local, "Programs"))+string(filepath.Separator))
 }

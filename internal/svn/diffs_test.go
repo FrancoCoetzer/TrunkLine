@@ -73,8 +73,26 @@ func TestCompare(t *testing.T) {
 	if d, err := c.DiffPath(ctx, Opts{}, root+"/trunk/f.txt@2", root+"/trunk/f.txt@4", "", ch[0].Item); err != nil || !strings.Contains(d, "+B") {
 		t.Errorf("file diff = %q, %v", d, err)
 	}
+	// A folder's own row: its property change only, not its files'.
+	if err := c.UpdateFolderOnly(ctx, Opts{}, filepath.Join(wc, "src")); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.SetProp(ctx, Opts{}, "owner", "me", filepath.Join(wc, "src")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.Commit(ctx, Opts{}, "prop", []string{filepath.Join(wc, "src")}); err != nil {
+		t.Fatal(err) // r5
+	}
+	ch, err = c.DiffSummary(ctx, Opts{}, root+"/trunk@3", root+"/trunk@5")
+	if err != nil || len(ch) < 2 {
+		t.Fatalf("summary with a folder: %v, %v", ch, err)
+	}
+	d, err = c.DiffPath(ctx, Opts{}, root+"/trunk@3", root+"/trunk@5", "src", "none")
+	if err != nil || !strings.Contains(d, "owner") || strings.Contains(d, "+2") {
+		t.Errorf("folder row diff = %q, %v", d, err)
+	}
 	// Nothing different.
-	if ch, err := c.DiffSummary(ctx, Opts{}, root+"/trunk@4", root+"/trunk"); err != nil || len(ch) != 0 {
+	if ch, err := c.DiffSummary(ctx, Opts{}, root+"/trunk@5", root+"/trunk"); err != nil || len(ch) != 0 {
 		t.Errorf("same = %v, %v", ch, err)
 	}
 }
@@ -103,15 +121,17 @@ func TestRelativePatch(t *testing.T) {
 }
 
 func TestParsePatchOutput(t *testing.T) {
-	out := "UU        /w/f.txt\n" +
+	w := t.TempDir()
+	p := func(rel string) string { return filepath.Join(w, filepath.FromSlash(rel)) }
+	out := "UU        " + p("f.txt") + "\r\n" +
 		">         applied hunk @@ -1,3 +1,4 @@ with fuzz 2\n" +
-		"CU        /w/g.txt\n" +
+		"CU        " + p("g.txt") + "\n" +
 		">         rejected hunk @@ -1,3 +1,4 @@\n" +
-		"A         /w/new dir/n.txt\n" +
-		" U        /w/d\n" +
-		"Skipped missing target: '/w/missing.txt'\n" +
+		"A         " + p("new dir/n.txt") + "\n" +
+		" U        " + p("d") + "\n" +
+		"Skipped missing target: '" + p("missing.txt") + "'\n" +
 		"Summary of conflicts:\n  Text conflicts: 1\n  Skipped paths: 1\n"
-	got := parsePatchOutput(out, "/w")
+	got := parsePatchOutput([]byte(out), w)
 	want := []Patched{
 		{Path: "f.txt", Action: "updated", Props: "updated", Notes: []string{"applied hunk @@ -1,3 +1,4 @@ with fuzz 2"}},
 		{Path: "g.txt", Action: "conflict", Props: "updated", Rejected: true, Notes: []string{"rejected hunk @@ -1,3 +1,4 @@"}},
@@ -121,6 +141,14 @@ func TestParsePatchOutput(t *testing.T) {
 	}
 	if fmt.Sprint(got) != fmt.Sprint(want) {
 		t.Errorf("got  %+v\nwant %+v", got, want)
+	}
+}
+
+func TestUTF8Headers(t *testing.T) {
+	// UTF-8 headers, and contents that aren't UTF-8, stay as they are.
+	in := []byte("Index: café.txt\n--- a/café.txt\n+++ b/café.txt\n@@ -1 +1 @@\n-caf\xe9\n+cafe\n")
+	if got := utf8Headers(in); !bytes.Equal(got, in) {
+		t.Errorf("changed: %q", got)
 	}
 }
 

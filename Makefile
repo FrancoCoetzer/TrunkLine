@@ -2,7 +2,8 @@
 #
 # Building on Linux needs libgtk-3-dev and libwebkit2gtk-4.1-dev. The tests
 # and the app need the svn client at run time (svnadmin too, for the tests).
-# make dist also needs nsis (makensis) for the Windows setup.
+# make dist also needs nsis (makensis) and wixl for the Windows
+# setup and .msi.
 
 SHELL      := /bin/bash
 VERSION    := $(shell git describe --tags --match 'v[0-9]*' --dirty --always 2>/dev/null)
@@ -27,13 +28,19 @@ dev:
 	go build -tags dev,webkit2_41 -ldflags "$(call STAMP,$(VERSION),source)" -o build/bin/trunkline-dev .
 	build/bin/trunkline-dev -assetdir frontend/dist -devserver localhost:34115
 
+# The Windows resources linked into the .exe (icon, version, manifest) are
+# written for each build by make_syso.py, with X.Y.Z of the last tag.
+SYSO_VERSION = $(shell [[ '$(VERSION)' =~ ^v([0-9]+\.[0-9]+\.[0-9]+) ]] && echo "$${BASH_REMATCH[1]}" || echo 0.0.0)
+
 # Windows needs no cgo, so it cross-builds from Linux.
 windows:
+	python3 packaging/windows/make_syso.py $(SYSO_VERSION) amd64
 	GOOS=windows GOARCH=amd64 go build -tags $(APP_TAGS) -ldflags "-s -w -H windowsgui $(call STAMP,$(VERSION),source)" -o build/bin/trunkline.exe .
 
-# The Windows icon: rsrc_windows_amd64.syso (linked into the .exe) and
-# packaging/windows/trunkline.ico (the installer's), both committed, drawn by
-# a script that mirrors packaging/trunkline.svg. Needs Python 3 and Pillow.
+# The Windows pictures: packaging/windows/trunkline.ico (the .exe's and the
+# installer's icon) and the installer's welcome and header pictures, all
+# committed, drawn by a script that mirrors packaging/trunkline.svg. Needs
+# Python 3 and Pillow.
 winres:
 	python3 packaging/windows/make_icon.py
 
@@ -60,15 +67,22 @@ dist: test
 		{ echo "HEAD is not at a release tag: use make release, or TAG=vX.Y.Z for a test build"; exit 1; }; \
 	[[ $$tag =~ ^v[0-9]+\.[0-9]+\.[0-9]+$$ ]] || { echo "$$tag is not a vX.Y.Z tag"; exit 1; }; \
 	command -v makensis >/dev/null || { echo "makensis not found: sudo apt install nsis"; exit 1; }; \
+	command -v wixl >/dev/null || { echo "wixl not found: sudo apt install wixl"; exit 1; }; \
 	set -e; v=$${tag#v}; rm -rf build/dist build/stage; mkdir -p build/dist build/stage; \
 	echo "== $$tag: Linux"; \
 	go build -tags $(LINUX_TAGS) -ldflags "-s -w $(call STAMP,$$tag,deb)" -o build/stage/trunkline .; \
 	packaging/linux/build-deb.sh $$tag build/stage/trunkline build/dist/trunkline_$${v}_amd64.deb; \
 	echo "== $$tag: Windows"; \
+	python3 packaging/windows/make_syso.py $$v amd64; \
 	GOOS=windows GOARCH=amd64 go build -tags $(APP_TAGS) -ldflags "-s -w -H windowsgui $(call STAMP,$$tag,windows)" -o build/stage/trunkline.exe .; \
 	makensis -V2 -DVERSION=$$v -DAPPEXE=$(CURDIR)/build/stage/trunkline.exe -DLICENSEFILE=$(CURDIR)/LICENSE \
 		-DICONFILE=$(CURDIR)/packaging/windows/trunkline.ico \
 		-DOUTFILE=$(CURDIR)/build/dist/trunkline-$$v-setup.exe packaging/windows/installer.nsi; \
+	echo "== $$tag: Windows .msi"; \
+	mkdir -p build/stage/msi; \
+	GOOS=windows GOARCH=amd64 go build -tags $(APP_TAGS) -ldflags "-s -w -H windowsgui $(call STAMP,$$tag,msi)" -o build/stage/msi/trunkline.exe .; \
+	wixl -a x64 -D Version=$$v -D AppExe=$(CURDIR)/build/stage/msi/trunkline.exe -D License=$(CURDIR)/LICENSE \
+		-D Icon=$(CURDIR)/packaging/windows/trunkline.ico -o build/dist/trunkline-$$v-x64.msi packaging/windows/trunkline.wxs; \
 	cd build/dist && sha256sum -- * > SHA256SUMS && ls -l
 
 # Tag a release and push it: GitHub Actions (.github/workflows/release.yml)

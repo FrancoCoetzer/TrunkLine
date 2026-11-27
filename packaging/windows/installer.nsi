@@ -24,8 +24,16 @@ VIAddVersionKey "LegalCopyright" "Franco Coetzer, GNU GPL v3"
 
 !define MUI_ICON "${ICONFILE}"
 !define MUI_UNICON "${ICONFILE}"
+; Pictures drawn by make_icon.py, next to this script (makensis runs in its folder).
+!define MUI_WELCOMEFINISHPAGE_BITMAP "installer-side.bmp"
+!define MUI_UNWELCOMEFINISHPAGE_BITMAP "installer-side.bmp"
+!define MUI_HEADERIMAGE
+!define MUI_HEADERIMAGE_RIGHT
+!define MUI_HEADERIMAGE_BITMAP "installer-header.bmp"
+!define MUI_WELCOMEPAGE_TEXT "This installs TrunkLine, a desktop client for Subversion (SVN), for you only: no administrator rights needed.$\r$\n$\r$\nTrunkLine uses the svn command-line client. If it isn't installed yet, install TortoiseSVN and tick its $\"command line client tools$\".$\r$\n$\r$\nClick Next to continue."
 !define MUI_FINISHPAGE_RUN "$INSTDIR\trunkline.exe"
 !define MUI_FINISHPAGE_RUN_TEXT "Start TrunkLine"
+!insertmacro MUI_PAGE_WELCOME
 !insertmacro MUI_PAGE_LICENSE "${LICENSEFILE}"
 !insertmacro MUI_PAGE_INSTFILES
 !insertmacro MUI_PAGE_FINISH

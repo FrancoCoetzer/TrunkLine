@@ -45,17 +45,31 @@ rebuild after editing `frontend/dist`.
   dialog's cancel, not the `close` event (a webview that isn't painting can
   hold that back). Keep it that way.
 - This is a public repo: no company names, internal hostnames or paths.
-- **The Windows icon** is `rsrc_windows_amd64.syso` (linked into the .exe; Wails
-  loads icon group 3) and `packaging/windows/trunkline.ico` (the installer's),
-  both committed and drawn by `packaging/windows/make_icon.py`, which mirrors
-  the geometry of `packaging/trunkline.svg`. Change the SVG and the script
-  together, then `make winres`.
+- **The Windows pictures** (`packaging/windows/trunkline.ico`, the installer's
+  `installer-side.bmp` and `installer-header.bmp`) are committed and drawn by
+  `packaging/windows/make_icon.py`, which mirrors the geometry of
+  `packaging/trunkline.svg`. Change the SVG and the script together, then
+  `make winres`.
+- **The .exe's resources** (icon group 3, which Wails loads; version info;
+  the manifest) are written for each Windows build by
+  `packaging/windows/make_syso.py` into `rsrc_windows_<arch>.syso`, which git
+  ignores. Every Windows build in the Makefile runs it first.
+- **svn.exe on Windows writes paths in non-XML output in the ANSI code page**
+  (diff headers, svn patch's report), and svn patch reads them that way.
+  `utf8Headers`/`fromNative` and `nativeHeaders`/`toNative`
+  (`internal/svn/diffs.go`, `native_*.go`) convert; patches TrunkLine writes
+  are UTF-8. `--xml` output is always UTF-8.
+- **The .msi** (`packaging/windows/trunkline.wxs`) is built on Linux by
+  `wixl`, which only knows part of WiX: check a change with `msiinfo export`
+  and on Windows. It doesn't support HKMU registry values (use a file as a
+  component's key path) and leaves file versions empty (so
+  `REINSTALLMODE=amus`, or upgrades leave an empty folder).
 
 - **Updates** (`internal/update`): releases come from GitHub (`update.Repo`).
   An update is only installed after its SHA-256 matches the release's
   `SHA256SUMS`; keep that check. The asset names in `AssetName` and in the
   Makefile's `dist` target must match. A build's version and install kind
-  (deb, windows, source) are stamped by the Makefile; a plain `go build` has
+  (deb, windows, msi, source) are stamped by the Makefile; a plain `go build` has
   neither and never offers updates.
 - **Releases**: `make release V=vX.Y.Z NOTES="..."` only when the user asks; it
   publishes to everyone who has the app installed. Don't leave a `make dist

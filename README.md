@@ -110,10 +110,16 @@ Download the latest release from the
 - **Windows**: `trunkline-X.Y.Z-setup.exe`. It installs for your user only (no
   admin rights). The installer isn't code-signed yet, so Windows SmartScreen
   may warn: click **More info**, then **Run anyway**.
+- **Windows, as an .msi** (for deployment tools): `trunkline-X.Y.Z-x64.msi`.
+  Double-clicked, it installs for that user only, like the setup. For
+  everyone on the machine, an administrator runs
+  `msiexec /i trunkline-X.Y.Z-x64.msi ALLUSERS=1` (add `/qn` for no windows).
 
 TrunkLine checks for new releases when it starts and every few hours, and
-offers to install them (one password prompt on Linux, none on Windows). Turn
-that off, or check by hand, by clicking the version number in the top right.
+offers to install them (one password prompt on Linux, none on Windows).
+A copy installed for all users from the .msi doesn't update itself: it says a
+new release exists, and whoever installed it installs the new .msi. Turn
+the checks off in Preferences, or check by hand in Help, Check for updates.
 
 ## Requirements
 
@@ -137,7 +143,8 @@ make test       # go test ./... (needs svn and svnadmin: the tests use a real re
 make vet        # Linux and Windows
 make dev        # debug build: Inspect in the window, and served on http://localhost:34115
 make install-desktop   # a "TrunkLine (dev)" launcher in the app menu
-make winres     # redraw the Windows icon files (after changing packaging/trunkline.svg; needs Pillow)
+make winres     # redraw the Windows icon and installer pictures (after changing packaging/trunkline.svg; needs Pillow)
+make dist TAG=v9.9.9   # a test set of release files in build/dist (needs nsis and wixl)
 ```
 
 The frontend has no build step: edit `frontend/dist` and rebuild.

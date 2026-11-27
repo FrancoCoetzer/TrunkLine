@@ -163,3 +163,15 @@ func TestParseTag(t *testing.T) {
 		t.Errorf("baseVersion = %v %v", v, ok)
 	}
 }
+
+func TestAssetNames(t *testing.T) {
+	v := Semver{1, 2, 3}
+	for kind, want := range map[string]string{
+		InstallDeb: "trunkline_1.2.3_amd64.deb", InstallWindows: "trunkline-1.2.3-setup.exe",
+		InstallMSI: "trunkline-1.2.3-x64.msi", InstallSource: "",
+	} {
+		if got := AssetName(kind, v); got != want {
+			t.Errorf("AssetName(%s) = %q, want %q", kind, got, want)
+		}
+	}
+}

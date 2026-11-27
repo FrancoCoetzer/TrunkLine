@@ -1,16 +1,13 @@
 #!/usr/bin/env python3
-"""Makes TrunkLine's Windows icon files (make winres).
+"""Draws TrunkLine's Windows pictures (make winres).
 
 Writes:
-  packaging/windows/trunkline.ico   the icon file, for the installer
-  rsrc_windows_amd64.syso           the icon as Windows resources, in a COFF
-                                    object Go links into Windows builds of the
-                                    package in the repo root
-
-Windows takes a program's icon from resources inside the .exe: RT_ICON images
-and an RT_GROUP_ICON that lists them. Wails loads group 3 for the window (its
-winc.AppIconID), and the lowest group ID is also the one Explorer and the
-taskbar show, so there is one group, with ID 3.
+  packaging/windows/trunkline.ico         the icon: the .exe's (make_syso.py
+                                          puts it in the resources), the
+                                          installer's and the uninstaller's
+  packaging/windows/installer-side.bmp    the installer's welcome and finish
+                                          page picture
+  packaging/windows/installer-header.bmp  the installer's page header picture
 
 The picture is drawn here from the same geometry as packaging/trunkline.svg (a
 64x64 view box), at 1024 px and scaled down, so no SVG renderer is needed.
@@ -21,16 +18,14 @@ import io
 import os
 import struct
 
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageFont
 
 ROOT = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
 ICO = os.path.join(ROOT, "packaging", "windows", "trunkline.ico")
-SYSO = os.path.join(ROOT, "rsrc_windows_amd64.syso")
+SIDE = os.path.join(ROOT, "packaging", "windows", "installer-side.bmp")
+HEADER = os.path.join(ROOT, "packaging", "windows", "installer-header.bmp")
 
 SIZES = (256, 64, 48, 40, 32, 24, 20, 16)  # the sizes Windows asks for at 100-200% scaling
-GROUP_ID = 3
-LANG_EN_US = 0x0409
-RT_ICON, RT_GROUP_ICON = 3, 14
 
 
 def draw(px=1024):
@@ -102,95 +97,56 @@ def write_ico(images):
         f.write(head + entries + blobs)
 
 
-def write_syso(images):
-    """A COFF object with one .rsrc section holding the resource tree:
+def font(size):
+    """DejaVu Sans Mono Bold (the app's own look is bold monospace), or Pillow's own font."""
+    for path in ("/usr/share/fonts/truetype/dejavu/DejaVuSansMono-Bold.ttf",
+                 "/usr/share/fonts/TTF/DejaVuSansMono-Bold.ttf"):
+        if os.path.exists(path):
+            return ImageFont.truetype(path, size)
+    return ImageFont.load_default(size)
 
-        root -> type (RT_ICON, RT_GROUP_ICON) -> ID -> language -> data entry
 
-    Each data entry points at its data with an image-relative address, which
-    the object marks with an IMAGE_REL_AMD64_ADDR32NB relocation against the
-    section so the linker fills it in."""
-    icons = [(i + 1, data) for i, (_, data) in enumerate(images)]  # RT_ICON IDs 1..n
-    group = struct.pack("<HHH", 0, 1, len(images))
-    for (size, data), (icon_id, _) in zip(images, icons):
-        dim = 0 if size >= 256 else size
-        group += struct.pack("<BBBBHHIH", dim, dim, 0, 0, 1, 32, len(data), icon_id)
+def write_side(big):
+    """The installer's welcome and finish page picture (NSIS: 164 x 314,
+    a BMP): the icon and the name on a dusk-violet fade, as the app looks."""
+    w, h = 164, 314
+    top, bottom = (0x2b, 0x27, 0x42), (0x16, 0x15, 0x1f)
+    im = Image.new("RGB", (w, h))
+    d = ImageDraw.Draw(im)
+    for y in range(h):
+        t = y / (h - 1)
+        d.line((0, y, w, y), fill=tuple(round(a + (b - a) * t) for a, b in zip(top, bottom)))
+    icon = big.resize((88, 88), Image.LANCZOS)
+    im.paste(icon, ((w - 88) // 2, 64), icon)
+    f = font(19)
+    trunk, line = "Trunk", "Line"
+    tw, lw = d.textlength(trunk, font=f), d.textlength(line, font=f)
+    x = (w - tw - lw) / 2
+    d.text((x, 172), trunk, font=f, fill="#e7e4f3")
+    d.text((x + tw, 172), line, font=f, fill="#f6c39f")
+    sub = font(11)
+    text = "SVN client"
+    d.text(((w - d.textlength(text, font=sub)) / 2, 202), text, font=sub, fill="#a5a1bf")
+    im.save(SIDE, "BMP")
 
-    # (type, [(id, data)]), types and IDs in ascending order as Windows requires
-    tree = [(RT_ICON, icons), (RT_GROUP_ICON, [(GROUP_ID, group)])]
 
-    def directory(n_entries):
-        return struct.pack("<IIHHHH", 0, 0, 0, 0, 0, n_entries)
-
-    # Lay out: root dir, type dirs, ID dirs (one language each), data entries, data.
-    size_dir = lambda n: 16 + 8 * n
-    off = size_dir(len(tree))
-    type_off = []
-    for _, items in tree:
-        type_off.append(off)
-        off += size_dir(len(items))
-    lang_off = []
-    for _, items in tree:
-        lang_off.append([])
-        for _ in items:
-            lang_off[-1].append(off)
-            off += size_dir(1)
-    entry_off = []
-    for _, items in tree:
-        entry_off.append([])
-        for _ in items:
-            entry_off[-1].append(off)
-            off += 16
-    data_off = []
-    for _, items in tree:
-        data_off.append([])
-        for _, data in items:
-            off = (off + 7) & ~7
-            data_off[-1].append(off)
-            off += len(data)
-    total = (off + 7) & ~7
-
-    sec = bytearray(total)
-    sub = 0x80000000  # "this entry points at a subdirectory"
-    root = directory(len(tree))
-    for (rtype, _), o in zip(tree, type_off):
-        root += struct.pack("<II", rtype, sub | o)
-    sec[0:len(root)] = root
-    relocs = []
-    for t, (_, items) in enumerate(tree):
-        d = directory(len(items))
-        for j, (rid, _) in enumerate(items):
-            d += struct.pack("<II", rid, sub | lang_off[t][j])
-        sec[type_off[t]:type_off[t] + len(d)] = d
-        for j, (rid, data) in enumerate(items):
-            ld = directory(1) + struct.pack("<II", LANG_EN_US, entry_off[t][j])
-            sec[lang_off[t][j]:lang_off[t][j] + len(ld)] = ld
-            # IMAGE_RESOURCE_DATA_ENTRY: the data's address (relocated), size, code page, reserved
-            sec[entry_off[t][j]:entry_off[t][j] + 16] = struct.pack("<IIII", data_off[t][j], len(data), 0, 0)
-            relocs.append(entry_off[t][j])
-            sec[data_off[t][j]:data_off[t][j] + len(data)] = data
-
-    IMAGE_FILE_MACHINE_AMD64 = 0x8664
-    IMAGE_REL_AMD64_ADDR32NB = 0x0003
-    SCN = 0x00000040 | 0x40000000  # initialized data, readable
-    raw_at = 20 + 40
-    reloc_at = raw_at + len(sec)
-    symtab_at = reloc_at + 10 * len(relocs)
-    header = struct.pack("<HHIIIHH", IMAGE_FILE_MACHINE_AMD64, 1, 0, symtab_at, 1, 0, 0)
-    section = struct.pack("<8sIIIIIIHHI", b".rsrc", 0, 0, len(sec), raw_at, reloc_at, 0, len(relocs), 0, SCN)
-    relocations = b"".join(struct.pack("<IIH", r, 0, IMAGE_REL_AMD64_ADDR32NB) for r in relocs)
-    symbol = struct.pack("<8sIhHBB", b".rsrc", 0, 1, 0, 3, 0)  # the section, static
-    strings = struct.pack("<I", 4)  # an empty string table
-    with open(SYSO, "wb") as f:
-        f.write(header + section + bytes(sec) + relocations + symbol + strings)
+def write_header(big):
+    """The installer's page header picture (NSIS: 150 x 57, a BMP, on the
+    header's white): the icon at the right."""
+    w, h = 150, 57
+    im = Image.new("RGB", (w, h), "white")
+    icon = big.resize((44, 44), Image.LANCZOS)
+    im.paste(icon, (w - 44 - 6, (h - 44) // 2), icon)
+    im.save(HEADER, "BMP")
 
 
 def main():
     big = draw()
     images = [(size, image_data(big, size)) for size in SIZES]
     write_ico(images)
-    write_syso(images)
-    for p in (ICO, SYSO):
+    write_side(big)
+    write_header(big)
+    for p in (ICO, SIDE, HEADER):
         print(f"wrote {os.path.relpath(p, ROOT)} ({os.path.getsize(p)} bytes)")
 
 

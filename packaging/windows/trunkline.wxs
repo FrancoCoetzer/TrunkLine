@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  TrunkLine's Windows .msi. Built by make dist with msitools' wixl:
+
+    wixl -a x64 -D Version=X.Y.Z -D AppExe=<trunkline.exe> -D License=<LICENSE>
+         -D Icon=<trunkline.ico> -o trunkline-X.Y.Z-x64.msi trunkline.wxs
+
+  One package for both kinds of install (a "dual-purpose" .msi):
+    - a double-click installs it for that user only, no administrator rights
+      needed, in %LOCALAPPDATA%\Programs\TrunkLine (as the setup .exe does);
+    - msiexec /i trunkline-X.Y.Z-x64.msi ALLUSERS=1 (an administrator, or a
+      deployment tool) installs it for everyone, in Program Files.
+  A per-user copy updates itself (internal/update); a per-machine one is
+  updated the way it was installed.
+
+  UpgradeCode never changes: each new version replaces the one installed.
+  The component GUID never changes either.
+-->
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+  <Product Id="*" Name="TrunkLine" Language="1033" Version="$(var.Version)" Manufacturer="Franco Coetzer"
+           UpgradeCode="A442F9D1-243F-4767-A467-1DF7D1F0FCC9">
+    <!-- InstallScope="perUser" is how wixl marks the package "no administrator
+         rights needed" (the summary's word count 10); the two properties
+         below then still let ALLUSERS=1 install it for everyone. -->
+    <Package Description="TrunkLine SVN client" Manufacturer="Franco Coetzer" InstallerVersion="500"
+             Compressed="yes" InstallScope="perUser"/>
+    <Media Id="1" Cabinet="trunkline.cab" EmbedCab="yes"/>
+
+    <!-- Per user unless ALLUSERS=1 is given -->
+    <Property Id="ALLUSERS" Value="2"/>
+    <Property Id="MSIINSTALLPERUSER" Value="1"/>
+
+    <Icon Id="trunkline.ico" SourceFile="$(var.Icon)"/>
+    <Property Id="ARPPRODUCTICON" Value="trunkline.ico"/>
+    <Property Id="ARPURLINFOABOUT" Value="https://github.com/FrancoCoetzer/TrunkLine"/>
+    <Property Id="ARPNOMODIFY" Value="1"/>
+    <Property Id="ARPNOREPAIR" Value="1"/>
+
+    <MajorUpgrade DowngradeErrorMessage="A newer version of TrunkLine is already installed."/>
+    <!-- Always copy the files. wixl leaves the File table's versions empty,
+         so an upgrade would decide the old (unversioned) files can stay,
+         then remove them with the old version: an empty folder. -->
+    <Property Id="REINSTALLMODE" Value="amus"/>
+
+    <Directory Id="TARGETDIR" Name="SourceDir">
+      <!-- For one user, Windows makes this %LOCALAPPDATA%\Programs -->
+      <Directory Id="ProgramFiles64Folder">
+        <Directory Id="INSTALLDIR" Name="TrunkLine">
+          <!-- The Start-menu shortcut is in the program's component (whose key
+               is the .exe), not its own with a registry key: wixl writes
+               HKMU, "the user's or the machine's", as a root Windows
+               doesn't know. -->
+          <Component Id="App" Guid="DF26A3DF-A30C-4569-9303-D98B5FCCA579" Win64="yes">
+            <File Id="trunkline.exe" Name="trunkline.exe" Source="$(var.AppExe)" KeyPath="yes"/>
+            <File Id="LICENSE.txt" Name="LICENSE.txt" Source="$(var.License)"/>
+            <Shortcut Id="StartMenuShortcut" Directory="ProgramMenuFolder" Name="TrunkLine" Description="SVN client"
+                      Target="[INSTALLDIR]trunkline.exe" WorkingDirectory="INSTALLDIR"/>
+          </Component>
+        </Directory>
+      </Directory>
+      <Directory Id="ProgramMenuFolder"/>
+    </Directory>
+
+    <Feature Id="Main" Title="TrunkLine" Level="1">
+      <ComponentRef Id="App"/>
+    </Feature>
+  </Product>
+</Wix>

@@ -1,4 +1,6 @@
 build/
+# Windows resources, written for each build by packaging/windows/make_syso.py
+*.syso
 
 # Windows test handoff (shared by hand, never committed)
 test.md

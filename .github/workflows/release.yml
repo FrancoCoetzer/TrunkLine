@@ -25,7 +25,7 @@ jobs:
       - name: Install build tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev nsis subversion
+          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev nsis wixl subversion
 
       - name: Build the release files
         run: make dist TAG="$GITHUB_REF_NAME"

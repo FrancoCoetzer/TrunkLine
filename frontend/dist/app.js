@@ -1318,6 +1318,11 @@ async function openCompare(from) {
   const showRev = () => { $("cmpRevRow").hidden = $("cmpWith").value !== "rev"; };
   $("cmpWith").onchange = () => { showRev(); if (!$("cmpRevRow").hidden) $("cmpRev").focus(); };
   $("cmpRev").value = "";
+  // Start on the likeliest choice: for a revision, the latest; for a
+  // branch or tag, the line the working copy is on (or the first other).
+  const current = opts.find(o => o.value.startsWith("br") && state.branches.branches[Number(o.value.slice(2))].current);
+  const first = from.rev ? opts[0] : current || opts.find(o => o.value.startsWith("br")) || opts[0];
+  $("cmpWith").value = first.value;
   showRev();
   for (;;) {
     const r = ask($("cmpPickDlg"));
@@ -1370,10 +1375,10 @@ function renderCompare() {
   for (const c of files) {
     const letter = { added: "A", deleted: "D", modified: "M", replaced: "R" }[c.item] || (c.props === "modified" ? "P" : "");
     const cls = { added: "added", deleted: "deleted", modified: "modified", replaced: "replaced" }[c.item] || "props";
-    const name = c.path || cmp.a.label;
+    const name = c.path || (c.kind === "dir" ? "(the folder itself)" : cmp.a.label);
     const tr = el("tr", { onclick: () => showCompareDiff(c) },
       el("td", {}, el("span", { class: "st st-" + cls, title: c.item === "none" ? "properties changed" : c.item }, letter)),
-      el("td", { class: "path", title: name }, name + (c.kind === "dir" ? "/" : "")));
+      el("td", { class: "path", title: name }, name + (c.kind === "dir" && c.path ? "/" : "")));
     tr.dataset.key = c.path;
     tr._move = () => showCompareDiff(c);
     tb.append(tr);
@@ -2584,7 +2589,7 @@ function showUpdate(info, force) {
   updateInfo = info;
   $("updateTitle").textContent = `TrunkLine ${info.latest} is available.`;
   $("updateNotes").textContent = (info.notes || []).slice(0, 3).join("  ·  ") +
-    (info.canInstall ? "" : "  (built from source: pull and rebuild to update)");
+    (info.canInstall ? "" : `  (${info.manual})`);
   $("updateInstall").hidden = !info.canInstall;
   $("updateBanner").hidden = false;
 }
@@ -2613,7 +2618,7 @@ $("updateInstall").onclick = async () => {
 };
 
 function describeUpdate(info) {
-  if (info.available) return info.canInstall ? `${info.latest} is available` : `${info.latest} is available: pull and rebuild`;
+  if (info.available) return info.canInstall ? `${info.latest} is available` : `${info.latest} is available (${info.manual})`;
   if (info.note) return info.note + (info.latest ? ` (latest release: ${info.latest})` : "");
   return info.latest ? `Up to date (latest release: ${info.latest})` : "No releases published yet";
 }
@@ -2621,7 +2626,7 @@ function describeUpdate(info) {
 async function openAbout() {
   const s = state.startup;
   const kind = await Go().InstallKind();
-  $("aboutVersion").textContent = `${s.version} (${{ deb: ".deb package", windows: "Windows setup", source: "built from source" }[kind] || kind})`;
+  $("aboutVersion").textContent = `${s.version} (${{ deb: ".deb package", windows: "Windows setup", msi: "Windows .msi", source: "built from source" }[kind] || kind})`;
   $("aboutSvn").textContent = s.svnError ? "not found" : `${s.svnVersion} (${s.svnPath})`;
   if (!$("aboutDlg").open) ask($("aboutDlg"));
 }
@@ -2791,6 +2796,7 @@ async function start() {
   state.startup = s;
   Object.assign(look, { theme: s.theme, font: s.font, zoom: s.zoom });
   applyLook();
+  if (s.settingsNote) toast(s.settingsNote, "err");
   state.wcs = s.workingCopies;
   state.servers = s.servers;
   $("version").textContent = s.version;

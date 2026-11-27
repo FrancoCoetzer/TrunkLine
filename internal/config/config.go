@@ -4,13 +4,16 @@
 package config
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
 	"sync"
+	"time"
 )
 
 // WorkingCopy is one entry in the sidebar.
@@ -38,6 +41,10 @@ type Config struct {
 	Font          string            `json:"font,omitempty"`  // "regular", or "" for monospace
 	Zoom          int               `json:"zoom,omitempty"`  // the window's size in percent, or 0 for 100
 
+	// Note says, when Load couldn't read the settings file, what it did
+	// instead (for the app to show once).
+	Note string `json:"-"`
+
 	mu   sync.Mutex
 	path string
 }
@@ -59,8 +66,16 @@ func Load(dir string) (*Config, error) {
 		return nil, err
 	}
 	if err == nil {
+		// A byte order mark (Windows editors and PowerShell 5 write one) isn't JSON.
+		b = bytes.TrimPrefix(b, []byte("\xef\xbb\xbf"))
 		if err := json.Unmarshal(b, c); err != nil {
-			return nil, err
+			// Damaged settings mustn't stop the app from starting: keep the
+			// file for the user, and start afresh.
+			kept := c.path + ".broken-" + time.Now().Format("20060102-150405")
+			if rerr := os.Rename(c.path, kept); rerr != nil {
+				return nil, fmt.Errorf("%w (and keeping it aside failed: %v)", err, rerr)
+			}
+			*c = Config{path: c.path, Note: fmt.Sprintf("Your settings couldn't be read (%v), so TrunkLine started with fresh ones. The old file is kept as %s.", err, kept)}
 		}
 	}
 	if c.WorkingCopies == nil {

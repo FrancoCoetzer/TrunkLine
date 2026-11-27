@@ -147,11 +147,12 @@ type Startup struct {
 	OS            string               `json:"os"`
 	WorkingCopies []config.WorkingCopy `json:"workingCopies"`
 	Servers       []config.Server      `json:"servers"`
-	Home          string               `json:"home"`        // the user's home folder, shown as ~
-	UpdateCheck   bool                 `json:"updateCheck"` // check for new releases automatically
-	Theme         string               `json:"theme"`       // "dark", "light" or "system"
-	Font          string               `json:"font"`        // "mono" or "regular"
-	Zoom          int                  `json:"zoom"`        // percent
+	Home          string               `json:"home"`         // the user's home folder, shown as ~
+	UpdateCheck   bool                 `json:"updateCheck"`  // check for new releases automatically
+	SettingsNote  string               `json:"settingsNote"` // the settings file couldn't be read: what happened
+	Theme         string               `json:"theme"`        // "dark", "light" or "system"
+	Font          string               `json:"font"`         // "mono" or "regular"
+	Zoom          int                  `json:"zoom"`         // percent
 }
 
 func (a *App) Startup() Startup {
@@ -171,6 +172,7 @@ func (a *App) Startup() Startup {
 		s.WorkingCopies = slices.Clone(c.WorkingCopies)
 		s.Servers = slices.Clone(c.Servers)
 		s.UpdateCheck = !c.NoUpdateCheck
+		s.SettingsNote = c.Note
 		s.Theme, s.Font = lookOf(c)
 		s.Zoom = 100
 		if c.Zoom >= minZoom && c.Zoom <= maxZoom {

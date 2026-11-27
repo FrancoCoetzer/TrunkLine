@@ -1,6 +1,7 @@
 package svn
 
 import (
+	"bytes"
 	"context"
 	"encoding/xml"
 	"errors"
@@ -10,6 +11,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"unicode/utf8"
 )
 
 // Changed is one file or folder that differs between two places in the
@@ -79,10 +81,12 @@ func (c *Client) DiffPath(ctx context.Context, o Opts, old, new, path, item stri
 		}
 		return WholeFileDiff(text, path, item == "added"), nil
 	}
+	// --depth empty: a folder's own change (its properties), not everything
+	// in it; for a file it changes nothing.
 	if path == "" {
-		return c.diffOldNew(ctx, o, old, new)
+		return c.diffOldNew(ctx, o, old, new, "--depth", "empty")
 	}
-	return c.diffOldNew(ctx, o, old, new, "--", path)
+	return c.diffOldNew(ctx, o, old, new, "--depth", "empty", "--", path)
 }
 
 func (c *Client) diffOldNew(ctx context.Context, o Opts, old, new string, more ...string) (string, error) {
@@ -91,10 +95,62 @@ func (c *Client) diffOldNew(ctx context.Context, o Opts, old, new string, more .
 	if err != nil {
 		return "", err
 	}
+	return cutDiff(utf8Headers(out)), nil
+}
+
+// cutDiff is a diff as text, cut at MaxDiff.
+func cutDiff(out []byte) string {
 	if len(out) > MaxDiff {
-		return string(out[:MaxDiff]) + "\n\n[diff cut at 4 MB]\n", nil
+		return string(out[:MaxDiff]) + "\n\n[diff cut at 4 MB]\n"
 	}
-	return string(out), nil
+	return string(out)
+}
+
+// The lines of a diff that name paths, which svn writes in the system's
+// encoding (the rest is the files' own bytes).
+var diffHeaderRe = regexp.MustCompile(`^(Index: |diff --git |--- |\+\+\+ |Property changes on: |copy from |copy to |rename from |rename to )`)
+
+// utf8Headers makes the path lines of a diff UTF-8 (svn.exe on Windows
+// writes them in the ANSI code page), leaving the files' contents alone.
+func utf8Headers(diff []byte) []byte {
+	if utf8.Valid(diff) {
+		return diff
+	}
+	lines := bytes.SplitAfter(diff, []byte("\n"))
+	for i, l := range lines {
+		if diffHeaderRe.Match(l) && !utf8.Valid(l) {
+			lines[i] = []byte(fromNative(l))
+		}
+	}
+	return bytes.Join(lines, nil)
+}
+
+// nativeHeaders is a patch with its path lines in the system's encoding,
+// as svn patch reads them (a UTF-8 patch, from TrunkLine or Linux, works on
+// Windows). A path the system's encoding can't hold is an error.
+func nativeHeaders(patch []byte) ([]byte, error) {
+	lines := bytes.SplitAfter(patch, []byte("\n"))
+	for i, l := range lines {
+		if !diffHeaderRe.Match(l) || !utf8.Valid(l) || isASCII(l) {
+			continue
+		}
+		b, ok := toNative(string(l))
+		if !ok {
+			return nil, fmt.Errorf("the patch names a file (%s) whose name this Windows can't pass to svn: its characters aren't in the system's code page",
+				strings.TrimSpace(string(l)))
+		}
+		lines[i] = b
+	}
+	return bytes.Join(lines, nil), nil
+}
+
+func isASCII(b []byte) bool {
+	for _, c := range b {
+		if c >= 0x80 {
+			return false
+		}
+	}
+	return true
 }
 
 // WholeFileDiff shows a whole file as a diff that adds (or removes) every line.
@@ -156,7 +212,7 @@ func (c *Client) MakePatch(ctx context.Context, o Opts, wc, reposPath string, pa
 	if err != nil {
 		return "", err
 	}
-	return relativePatch(string(out), reposPath), nil
+	return relativePatch(string(utf8Headers(out)), reposPath), nil
 }
 
 // The lines of a git-style diff that name a path from the repository root.
@@ -208,6 +264,31 @@ func (c *Client) ApplyPatch(ctx context.Context, o Opts, wc, file string, dryRun
 	} else if st.IsDir() {
 		return nil, errors.New(file + " is a folder")
 	}
+	// svn patch reads the patch's paths in the system's encoding: on Windows,
+	// a copy with them in the ANSI code page.
+	text, err := os.ReadFile(file)
+	if err != nil {
+		return nil, err
+	}
+	native, err := nativeHeaders(text)
+	if err != nil {
+		return nil, err
+	}
+	if !bytes.Equal(native, text) {
+		f, err := os.CreateTemp("", "trunkline-*.patch")
+		if err != nil {
+			return nil, err
+		}
+		defer os.Remove(f.Name())
+		_, err = f.Write(native)
+		if cerr := f.Close(); err == nil {
+			err = cerr
+		}
+		if err != nil {
+			return nil, err
+		}
+		file = f.Name()
+	}
 	args := []string{"patch"}
 	if dryRun {
 		args = append(args, "--dry-run")
@@ -216,16 +297,20 @@ func (c *Client) ApplyPatch(ctx context.Context, o Opts, wc, file string, dryRun
 	if err != nil {
 		return nil, err
 	}
-	res := parsePatchOutput(string(out), wc)
+	res := parsePatchOutput(out, wc)
 	if len(res) == 0 {
 		return nil, ErrNotPatch
 	}
 	return res, nil
 }
 
-func parsePatchOutput(out, wc string) []Patched {
+func parsePatchOutput(out []byte, wc string) []Patched {
 	var res []Patched
-	for _, l := range strings.Split(strings.ReplaceAll(out, "\r\n", "\n"), "\n") {
+	for _, line := range bytes.Split(bytes.ReplaceAll(out, []byte("\r\n"), []byte("\n")), []byte("\n")) {
+		l := string(line)
+		if !utf8.Valid(line) {
+			l = fromNative(line) // svn.exe reports paths in the ANSI code page
+		}
 		switch {
 		case strings.HasPrefix(l, ">"):
 			if len(res) > 0 {

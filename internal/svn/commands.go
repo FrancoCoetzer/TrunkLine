@@ -352,10 +352,7 @@ func (c *Client) Diff(ctx context.Context, o Opts, target string, rev int) (stri
 	if err != nil {
 		return "", err
 	}
-	if len(out) > MaxDiff {
-		return string(out[:MaxDiff]) + "\n\n[diff cut at 4 MB]\n", nil
-	}
-	return string(out), nil
+	return cutDiff(utf8Headers(out)), nil
 }
 
 // Checkout checks url out into dir, reporting each line of svn's output.
