@@ -3,9 +3,11 @@
 A modern desktop client for [Subversion (SVN)](https://subversion.apache.org/),
 for Linux and Windows. Free and open source (GPL v3).
 
-TortoiseSVN only runs on Windows and looks its age, and the cross-platform
-clients are paid or unmaintained. TrunkLine aims to be a clean, fast client
-that works the same on both, built with Go and [Wails](https://wails.io/).
+TrunkLine started from a simple need: a friendly, fully featured SVN client
+for Linux. It works the same on Windows, and macOS is planned. It uses the
+standard `svn` command-line client, so it works alongside the tools you
+already have, TortoiseSVN included, on the same working copies. Built with
+Go and [Wails](https://wails.io/).
 
 ![Changes: a commit in progress, with the file's diff](docs/screenshots/changes.png)
 
