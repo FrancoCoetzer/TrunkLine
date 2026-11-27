@@ -7,21 +7,39 @@ package main
 
 import (
 	"embed"
+	"errors"
+	"fmt"
 	"log"
+	"os"
 
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
+
+	"trunkline/internal/update"
 )
 
 //go:embed all:frontend/dist
 var assets embed.FS
 
 func main() {
+	req, err := parseArgs(os.Args[1:])
+	switch {
+	case errors.Is(err, errHelp):
+		fmt.Print(cliHelp())
+		return
+	case errors.Is(err, errVersion):
+		fmt.Println("TrunkLine", update.Version)
+		return
+	case err != nil:
+		fmt.Fprintf(os.Stderr, "trunkline: %v\n\n%s", err, cliHelp())
+		os.Exit(2)
+	}
 	app, err := NewApp()
 	if err != nil {
 		log.Fatal(err)
 	}
+	app.pending = req
 	err = wails.Run(&options.App{
 		Title:            "TrunkLine",
 		Width:            1200,
@@ -32,6 +50,10 @@ func main() {
 		AssetServer:      &assetserver.Options{Assets: assets},
 		OnStartup:        app.startup,
 		Bind:             []any{app},
+		SingleInstanceLock: &options.SingleInstanceLock{
+			UniqueId:               instanceID,
+			OnSecondInstanceLaunch: app.secondInstance,
+		},
 	})
 	if err != nil {
 		log.Fatal(err)

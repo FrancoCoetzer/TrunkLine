@@ -115,6 +115,9 @@ work first, then everything else.
   (a checkout over it, like TortoiseSVN's "import in place"), so you keep
   working where you were. To take a friend's project into your own repo,
   export it from theirs, then import that folder into yours.
+- **Command line**: `trunkline commit .`, `trunkline log file.c`, `trunkline blame
+  file.c` and more (`trunkline --help`) open TrunkLine at that task. If it's
+  already running, the running window takes it, so there's only ever one.
 - **Menus** along the top: File (add a working copy or repository,
   Preferences, Quit), View (tabs, unversioned files, theme, zoom) and Help
   (keyboard shortcuts, updates, reporting a problem, About). Alt+F, Alt+V and

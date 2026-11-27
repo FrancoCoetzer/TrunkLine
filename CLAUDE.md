@@ -65,6 +65,13 @@ rebuild after editing `frontend/dist`.
   component's key path) and leaves file versions empty (so
   `REINSTALLMODE=amus`, or upgrades leave an empty folder).
 
+- **Command line** (`cli.go`): `trunkline <action> <paths>`, which the file
+  manager menus will run too. Each action in `cliActions` has a case in
+  `runAction` (`app.js`); add both together. Actions end where the user would
+  have got to by hand and never skip a confirmation (revert asks, commit waits
+  for the message). One window: a second launch hands its arguments over
+  (`SingleInstanceLock`); dev builds use their own `instanceID`.
+
 - **Updates** (`internal/update`): releases come from GitHub (`update.Repo`).
   An update is only installed after its SHA-256 matches the release's
   `SHA256SUMS`; keep that check. The asset names in `AssetName` (per install

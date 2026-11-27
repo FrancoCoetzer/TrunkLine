@@ -3378,11 +3378,97 @@ async function start() {
   $("showUnversioned").checked = store("showUnversioned") !== "0";
   renderSidebar();
 
+  // Started as `trunkline commit file.c` (or from a file manager's menu)?
+  const pending = await Go().PendingAction().catch(() => null);
+  if (pending && !pending.error) return runAction(pending);
+  if (pending) toast(pending.error, "err");
+
   let last = null;
   try { last = JSON.parse(store("last") || "null"); } catch { /* ignore */ }
   if (last && last.type === "wc" && state.wcs.some(w => w.path === last.path)) openWc(last.path);
   else if (last && last.type === "browse" && state.servers.some(x => x.url === last.server)) openBrowse(last.server, last.server, last.name);
   else showView("welcome");
 }
+
+// ---- Opened from outside: the command line and file managers -----------------------------------
+//
+// `trunkline commit file.c`, or a file manager's menu running the same, arrives
+// here: at start-up through PendingAction, or from a second launch as the
+// "action" event (Go brings the window forward). Go has already found the
+// working copy and added it to the list; act.paths are relative to it, ""
+// being the working copy itself. Each action ends where the user would have
+// got to by hand, and asks first wherever the buttons ask.
+
+async function runAction(act) {
+  if (!act) return;
+  if (act.error) return toast(act.error, "err");
+  if (modalOpen() || flowRunning) return toast("Finish what's open first, then try again.", "err");
+  await reloadLists();
+  await openWc(act.wc);
+  if (act.skipped && act.skipped.length) {
+    toast(`Opened ${shortPath(act.wc)}. Skipped ${act.skipped.length === 1 ? act.skipped[0] : act.skipped.length + " paths"}: one working copy at a time.`);
+  }
+  const paths = act.paths && act.paths.length ? act.paths : [""];
+  const files = paths.filter(p => p !== "");
+  const first = paths[0];
+  const named = paths.length === 1 ? (first || "the working copy") : paths.length + " paths";
+  // under: a change at or below one of the paths (or the new folder a path is in).
+  const under = c => paths.some(p => p === "" || c.path === p || c.path.startsWith(p + "/") ||
+    (c.isDir && c.item === "unversioned" && p.startsWith(c.path + "/")));
+  const tick = (want, none) => {
+    setTab("changes");
+    const pick = state.changes.filter(c => under(c) && localChange(c) && want(c));
+    if (!pick.length) { toast(none); return null; }
+    if (pick.some(c => c.item === "unversioned")) $("showUnversioned").checked = true;
+    state.checked = new Set(pick.map(c => c.path));
+    renderChanges();
+    showDiff(pick[0]);
+    return pick;
+  };
+
+  switch (act.action) {
+  case "open":
+    return;
+  case "commit":
+    if (tick(c => c.item !== "unversioned", `Nothing to commit in ${named}.`)) $("commitMsg").focus();
+    return;
+  case "revert":
+    if (tick(c => c.item !== "unversioned", `Nothing to revert in ${named}.`)) $("revertBtn").click();
+    return;
+  case "add":
+    if (tick(c => c.item === "unversioned", `Nothing new to add in ${named}.`)) $("addBtn").click();
+    return;
+  case "update":
+    $("updateBtn").click();
+    return;
+  case "log":
+    if (first) showFileHistory(first);
+    else setTab("history");
+    return;
+  case "diff": {
+    setTab("changes");
+    const c = state.changes.find(c => c.path === first && localChange(c));
+    if (c) showDiff(c);
+    else toast(`${first || "The working copy"} has no local changes to show.`);
+    return;
+  }
+  case "blame":
+    if (!files.length) return toast("Blame shows the lines of a file: pick a file, not the folder.");
+    return openBlame(() => call("BlameFile", act.wc, files[0]), "", files[0]);
+  case "lock":
+    if (!files.length) return toast("Locks are on files: pick the files to lock.");
+    return askLockAndLock(files);
+  case "unlock":
+    if (!files.length) return toast("Locks are on files: pick the files to unlock.");
+    try {
+      await call("UnlockFiles", act.wc, files, false);
+      toast(files.length === 1 ? `Released the lock on ${files[0]}.` : `Released ${files.length} locks.`, "ok");
+    } catch (e) { report(e); }
+    return refreshWc(false);
+  default:
+    toast(`TrunkLine can't "${act.action}" yet.`, "err");
+  }
+}
+window.runtime.EventsOn("action", act => runAction(act));
 
 start();

@@ -23,6 +23,7 @@ one section per task. Press **F1** in the app for every keyboard shortcut.
   - [Properties and externals](#properties-and-externals)
   - [Working with the repository directly](#working-with-the-repository-directly)
   - [Big repositories](#big-repositories)
+- [From the terminal](#from-the-terminal)
 - [Keyboard](#keyboard)
 - [Coming from TortoiseSVN](#coming-from-tortoisesvn)
 - [When something goes wrong](#when-something-goes-wrong)
@@ -184,6 +185,33 @@ working copy:
   without changing anything.
 - **Clean up** (⋯) if an operation was interrupted and svn says the working
   copy is locked.
+
+## From the terminal
+
+`trunkline <action> <paths>` opens TrunkLine at that task, in the working
+copy that holds the paths (added to the sidebar if it's new). Paths default
+to the current folder. If TrunkLine is already open, its window takes the
+task: there's only ever one window.
+
+| Command | What happens |
+|---|---|
+| `trunkline` or `trunkline <path>` | Opens the working copy |
+| `trunkline commit [paths]` | Changes, with those files ticked and the message box ready |
+| `trunkline update` | Updates the working copy |
+| `trunkline log [path]` | History of the working copy, or of one file or folder |
+| `trunkline diff <file>` | The diff of a changed file |
+| `trunkline blame <file>` | Blame for the file |
+| `trunkline lock <files>` / `unlock <files>` | Lock (asks for a note) / release your locks |
+| `trunkline revert [paths]` | Revert, after asking first |
+| `trunkline add [paths]` | Adds new files |
+
+Nothing happens without the window showing it: revert still asks, and commit
+waits for your message. `trunkline --help` lists the actions.
+
+Where `trunkline` is: on PATH with the .deb and .rpm; `flatpak run
+io.github.FrancoCoetzer.TrunkLine commit .` for the Flatpak;
+`snap run trunkline commit .` for the snap; on Windows, `trunkline.exe` in
+the folder you installed it to.
 
 ## Keyboard
 

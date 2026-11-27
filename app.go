@@ -46,9 +46,10 @@ type App struct {
 	creds    map[string]svn.Creds // host -> login, for this session only
 	opCancel context.CancelFunc   // the running checkout/update, if any
 
-	updating sync.Mutex // one app update at a time
-	notifyOK bool       // the system offers desktop notifications
-	noEvents bool       // tests: there's no window to send events to
+	updating sync.Mutex  // one app update at a time
+	notifyOK bool        // the system offers desktop notifications
+	pending  *cliRequest // the command line's action, until the page asks (PendingAction)
+	noEvents bool        // tests: there's no window to send events to
 }
 
 // emit sends an event to the page.
