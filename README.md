@@ -214,7 +214,8 @@ banner. `make dist TAG=v9.9.9` builds the same files locally for testing.
 | Path | What |
 |---|---|
 | `main.go` | Wails start-up |
-| `app.go` | the methods the window calls (`window.go.main.App.*`) |
+| `app.go`, `app_*.go` | the methods the window calls (`window.go.main.App.*`), one file per area |
+| `cli.go` | the command line (`trunkline <action> <paths>`) and the single window |
 | `internal/svn` | runs `svn` and parses its `--xml` output |
 | `internal/update` | checks GitHub releases, downloads, verifies and installs updates |
 | `internal/config` | saved settings: `~/.config/trunkline/config.json` (`%AppData%\trunkline` on Windows) |
