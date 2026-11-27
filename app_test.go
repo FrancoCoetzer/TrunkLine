@@ -36,7 +36,7 @@ func testApp(t *testing.T) (*App, string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &App{ctx: context.Background(), cfg: cfg, svn: c, creds: map[string]svn.Creds{}}, wc
+	return &App{ctx: context.Background(), cfg: cfg, svn: c, creds: map[string]svn.Creds{}, noEvents: true}, wc
 }
 
 func put(t *testing.T, path string) {
@@ -961,5 +961,211 @@ func TestTagAtRevisionAndCompare(t *testing.T) {
 	// The same folder at two revisions.
 	if ch, err := a.Compare(root+"/trunk", 2, root+"/trunk", 3); err != nil || len(ch) != 1 {
 		t.Errorf("by revision = %v, %v", ch, err)
+	}
+}
+
+func TestMoveFile(t *testing.T) {
+	a, wc := testApp(t)
+	put(t, filepath.Join(wc, "a.txt"))
+	if _, err := a.Commit(wc, "a", []string{"a.txt"}, CommitOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	put(t, filepath.Join(wc, "new.txt"))
+	for _, c := range []struct{ from, to, want string }{
+		{"a.txt", "../outside.txt", "isn't inside"},
+		{"a.txt", "a.txt", "same as the old"},
+		{"a.txt", "new.txt", "already exists"},
+		{"nope.txt", "x.txt", "isn't there"},
+	} {
+		if err := a.MoveFile(wc, c.from, c.to); err == nil || !strings.Contains(err.Error(), c.want) {
+			t.Errorf("MoveFile(%s, %s) = %v, want %q", c.from, c.to, err, c.want)
+		}
+	}
+	if err := a.MoveFile(wc, "a.txt", "docs/b.txt"); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.MoveFile(wc, "new.txt", "docs/new2.txt"); err != nil { // not in svn: just renamed
+		t.Fatal(err)
+	}
+	st := status(t, a, wc)
+	if st["a.txt"] != "deleted" || st["docs/b.txt"] != "added" || st["docs/new2.txt"] != "unversioned" {
+		t.Errorf("status = %v", st)
+	}
+}
+
+func TestRenameCandidates(t *testing.T) {
+	a, wc := testApp(t)
+	for _, p := range []string{"same.txt", "edited.txt", "dir/f.txt"} {
+		if err := os.MkdirAll(filepath.Dir(filepath.Join(wc, p)), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(wc, p), []byte("content of "+p+"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := a.Commit(wc, "init", []string{"same.txt", "edited.txt", "dir"}, CommitOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	// Renamed in a file manager: same content under a new name; the same
+	// name in another folder, edited; a folder renamed.
+	mv := func(from, to string) {
+		if err := os.MkdirAll(filepath.Dir(filepath.Join(wc, to)), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Rename(filepath.Join(wc, from), filepath.Join(wc, to)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mv("same.txt", "renamed.txt")
+	mv("edited.txt", "sub/edited.txt")
+	if err := os.WriteFile(filepath.Join(wc, "sub", "edited.txt"), []byte("changed\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	mv("dir", "folder")
+	put(t, filepath.Join(wc, "unrelated.txt"))
+
+	pairs, err := a.RenameCandidates(wc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]RenamePair{}
+	for _, p := range pairs {
+		got[p.From] = p
+	}
+	if len(pairs) != 3 || got["same.txt"].To != "renamed.txt" || !got["same.txt"].Same ||
+		got["edited.txt"].To != "sub/edited.txt" || got["edited.txt"].Same ||
+		got["dir"].To != "folder" || !got["dir"].Dir {
+		t.Fatalf("pairs = %+v", pairs)
+	}
+	if err := a.RecordRenames(wc, pairs); err != nil {
+		t.Fatal(err)
+	}
+	st := status(t, a, wc)
+	for _, p := range []string{"same.txt", "edited.txt", "dir"} {
+		if st[p] != "deleted" {
+			t.Errorf("%s: %s", p, st[p])
+		}
+	}
+	for _, p := range []string{"renamed.txt", "sub/edited.txt", "folder"} {
+		if st[p] != "added" {
+			t.Errorf("%s: %s", p, st[p])
+		}
+	}
+	if b, _ := os.ReadFile(filepath.Join(wc, "sub", "edited.txt")); string(b) != "changed\n" {
+		t.Errorf("the edit was lost: %q", b)
+	}
+	if st["unrelated.txt"] != "unversioned" {
+		t.Errorf("unrelated.txt: %s", st["unrelated.txt"])
+	}
+}
+
+func TestFoldersAndRepoChanges(t *testing.T) {
+	a, _, root := layoutApp(t)
+	for _, d := range []string{"docs", "cad"} {
+		if _, err := a.RepoMkdir(root+"/trunk/"+d, "folder"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := a.RepoMove(root+"/trunk/cad", root+"/trunk/cad", "x"); err == nil {
+		t.Error("moving onto itself was allowed")
+	}
+	if _, err := a.RepoMove(root+"/trunk/cad", root+"/trunk/docs", "x"); err == nil || !strings.Contains(err.Error(), "already there") {
+		t.Errorf("moving onto an existing folder: %v", err)
+	}
+	if _, err := a.RepoMove(root+"/trunk/cad", root+"/trunk/models", "rename"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.RepoDelete(root+"/trunk/docs", "gone"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.RepoMkdir(root+"/trunk/docs", "again"); err != nil {
+		t.Fatal(err)
+	}
+
+	// A sparse checkout: the top folder only, then choose.
+	sp := filepath.Join(t.TempDir(), "sparse")
+	if _, err := a.Checkout(root+"/trunk", sp, "everything"); err == nil {
+		t.Error("an unknown depth was taken")
+	}
+	if _, err := a.Checkout(root+"/trunk", sp, svn.DepthImmediates); err != nil {
+		t.Fatal(err)
+	}
+	f, err := a.Folders(sp, "")
+	if err != nil || fmt.Sprint(f) != "[{docs empty} {models empty} {src empty}]" {
+		t.Fatalf("Folders = %v, %v", f, err)
+	}
+	if err := a.SetFolders(sp, []string{"src"}, []string{"docs"}); err != nil {
+		t.Fatal(err)
+	}
+	if f, _ := a.Folders(sp, ""); fmt.Sprint(f) != "[{docs exclude} {models empty} {src infinity}]" {
+		t.Errorf("after choosing: %v", f)
+	}
+	if _, err := os.Stat(filepath.Join(sp, "src", "main.c")); err != nil {
+		t.Errorf("src wasn't fetched: %v", err)
+	}
+	// A folder with local changes isn't removed.
+	if err := os.WriteFile(filepath.Join(sp, "src", "main.c"), []byte("edited\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.SetFolders(sp, nil, []string{"src"}); err == nil || !strings.Contains(err.Error(), "local changes") {
+		t.Errorf("removing a changed folder: %v", err)
+	}
+	if err := a.SetFolders(sp, nil, []string{"../x"}); err == nil {
+		t.Error("a path outside the working copy was taken")
+	}
+	// Inside a folder the working copy doesn't have yet.
+	if f, err := a.Folders(sp, "models"); err != nil || len(f) != 0 {
+		t.Errorf("Folders(models) = %v, %v", f, err)
+	}
+}
+
+func TestFormatExternalsChecks(t *testing.T) {
+	a := &App{}
+	for _, c := range []struct {
+		ext  []svn.External
+		want string
+	}{
+		{[]svn.External{{URL: "", Dir: "x"}}, "needs a URL"},
+		{[]svn.External{{URL: "^/a b", Dir: "x"}}, "can't have spaces"},
+		{[]svn.External{{URL: "^/a", Dir: "x", Rev: "HEAD"}}, "a number"},
+	} {
+		if _, err := a.FormatExternals(c.ext); err == nil || !strings.Contains(err.Error(), c.want) {
+			t.Errorf("FormatExternals(%v) = %v, want %q", c.ext, err, c.want)
+		}
+	}
+	if s, err := a.FormatExternals([]svn.External{{URL: " ^/lib ", Dir: " lib ", Rev: "12"}}); err != nil || s != "^/lib@12 lib\n" {
+		t.Errorf("FormatExternals = %q, %v", s, err)
+	}
+}
+
+func TestCommitMoves(t *testing.T) {
+	a, wc := testApp(t)
+	put(t, filepath.Join(wc, "dir", "f.txt"))
+	put(t, filepath.Join(wc, "dir", "sub", "g.txt"))
+	put(t, filepath.Join(wc, "a.txt"))
+	if _, err := a.Commit(wc, "init", []string{"dir", "a.txt"}, CommitOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.MoveFile(wc, "dir", "folder"); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.MoveFile(wc, "a.txt", "b.txt"); err != nil {
+		t.Fatal(err)
+	}
+	// Both halves of each move, as the page ticks them.
+	if _, err := a.Commit(wc, "moves", []string{"dir", "folder", "a.txt", "b.txt"}, CommitOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if st := status(t, a, wc); len(st) != 0 {
+		t.Errorf("left over after the commit: %v", st)
+	}
+	for _, p := range []string{"folder/f.txt", "folder/sub/g.txt", "b.txt"} {
+		if _, err := os.Stat(filepath.Join(wc, filepath.FromSlash(p))); err != nil {
+			t.Errorf("%s: %v", p, err)
+		}
+	}
+	info, _ := a.Info(wc)
+	if l, err := a.svn.List(context.Background(), svn.Opts{}, info.URL+"/folder/sub"); err != nil || len(l) != 1 {
+		t.Errorf("folder/sub in the repository: %v, %v", l, err)
 	}
 }

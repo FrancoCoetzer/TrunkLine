@@ -27,7 +27,13 @@ that works the same on both, built with Go and [Wails](https://wails.io/).
   endings, needs-lock, ignore lists, externals, your own), with a short
   explanation of each one svn knows. From the diff pane's Properties button,
   or the ⋯ menu for the top folder. Like any change, they're shared by
-  committing them.
+  committing them. `svn:externals` (folders fetched from elsewhere) is edited
+  as a table: URL, revision, folder.
+- **Rename or move** a file or folder (the diff pane's Rename button, or the
+  ⋯ menu): `svn move`, so its history comes along. Renamed it in a file
+  manager instead? The Changes tab spots that (a missing file and a new one
+  with the same content, or the same name somewhere else) and records it as
+  a rename.
 - **Update**, with svn's output shown as it runs. The Update button shows how
   many files changed on the server (checked in the background), and a
   conflict an update causes is pointed out. **Check server** shows what an
@@ -78,7 +84,14 @@ that works the same on both, built with Go and [Wails](https://wails.io/).
   from a changed file (Blame, next to Open file), or by clicking any file in
   the repository browser. Your uncommitted lines show as "not committed".
 - **Repositories**: save a repository URL, browse its folders and check out any
-  folder (`trunk`, a branch, a tag).
+  folder (`trunk`, a branch, a tag). Make a folder, rename or move, delete and
+  copy URLs straight in the repository, each as one commit.
+- **Only some folders** of a big repository: check out "only the top folder",
+  then **Choose folders…** (⋯ menu) to tick the ones to fetch and untick
+  ones to leave out of this working copy (they stay in the repository).
+- **Notifications**: while TrunkLine isn't in front, a desktop notification
+  says when others commit to the working copy you have open (Preferences
+  turns it off).
 - **Export** (repository browser): just the files of a folder, as a plain copy
   with no link to the repository (`svn export`).
 - **Import folder here** (repository browser): commit a folder from your
@@ -184,6 +197,16 @@ banner. `make dist TAG=v9.9.9` builds the same files locally for testing.
 Early days: the everyday workflow (checkout, update, commit, history, browse,
 export, import) works and is tested against real repositories. Bug reports
 and pull requests are welcome.
+
+Planned for later:
+- A three-way merge editor for conflicts (mine, theirs and the result side by
+  side), instead of only keep mine / take theirs / I edited it.
+- A revision graph: branches, merges and tags over time.
+- Code-signed Windows installers (no SmartScreen warning).
+- Flatpak and Snap packages.
+- When svn 1.15 reaches the distributions: choosing which svn TrunkLine uses,
+  a clear message for svn older than 1.10, and an explanation when a working
+  copy is in 1.15's new format and an older svn can't open it.
 
 ## License
 

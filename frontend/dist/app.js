@@ -477,10 +477,12 @@ function menuItems(menu) { return [...menu.querySelectorAll("button")].filter(b 
 
 // setupMenu wires menu to its trigger btn; align "left" or "right" lines up
 // that edge of the menu with the button's.
-function setupMenu(menu, btn, align) {
+function setupMenu(menu, defaultBtn, align) {
+  const anchor = () => menu._btn || defaultBtn; // a menu shared by many buttons sets _btn
   menu.addEventListener("beforetoggle", e => {
     if (e.newState !== "open") return;
     if (menu._prepare) menu._prepare();
+    const btn = anchor();
     const r = btn.getBoundingClientRect(), z = zoomScale();
     menu.style.top = Math.round((r.bottom + 4) / z) + "px";
     if (align === "left") {
@@ -493,6 +495,7 @@ function setupMenu(menu, btn, align) {
   });
   menu.addEventListener("toggle", e => {
     const open = e.newState === "open";
+    const btn = anchor();
     btn.setAttribute("aria-expanded", open ? "true" : "false");
     if (open && (menu._focusFirst || btn.matches(":focus-visible"))) {
       const first = menuItems(menu)[0];
@@ -523,6 +526,7 @@ function setupMenu(menu, btn, align) {
   });
 }
 setupMenu($("wcMenu"), $("wcMenuBtn"), "right");
+setupMenu($("entryMenu"), $("repoCopyUrlBtn"), "right"); // opened from each row's ⋯ (its _btn)
 
 // The menu bar: File, View, Help.
 const BAR = [["mbFile", "menuFile"], ["mbView", "menuView"], ["mbHelp", "menuHelp"]];
@@ -713,6 +717,7 @@ async function refreshWc(remote) {
       $("wcIncoming").hidden = false;
     }
     renderChanges();
+    updateRenameHint();
     if (currentTab() === "history" && !state.log.length) loadLog(true);
   } catch (e) {
     report(e);
@@ -836,7 +841,7 @@ function afterChanges() {
     state.diffPath = null;
     $("diff").replaceChildren();
     $("diffTitle").textContent = "Pick a file to see its changes";
-    for (const id of ["openFileBtn", "blameFileBtn", "historyFileBtn", "propsFileBtn"]) $(id).hidden = true;
+    for (const id of ["openFileBtn", "blameFileBtn", "historyFileBtn", "propsFileBtn", "moveFileBtn"]) $(id).hidden = true;
   }
   // The banner's guidance is done with once there's nothing left to act on.
   if (state.banner && state.banner.kind === "conflict" && !state.changes.some(c => c.item === "conflicted" || c.props === "conflicted" || c.treeConflict)) clearBanner();
@@ -984,6 +989,7 @@ async function showDiff(ch) {
   $("blameFileBtn").hidden = ch.isDir || ["unversioned", "added", "replaced", "missing"].includes(ch.item);
   $("historyFileBtn").hidden = ["unversioned", "added", "replaced"].includes(ch.item);
   $("propsFileBtn").hidden = ["unversioned", "missing", "deleted", "ignored", "obstructed"].includes(ch.item);
+  $("moveFileBtn").hidden = ["missing", "deleted", "ignored", "obstructed"].includes(ch.item) || ch.path === ".";
   const path = state.view.path;
   $("diff").replaceChildren(el("div", { class: "placeholder" }, "Loading…"));
   try {
@@ -1175,17 +1181,23 @@ async function openProps(rel) {
   let res;
   try { res = await call("Props", state.view.path, rel); } catch (e) { return report(e); }
   props = { rel, isDir: res.isDir, rows: res.props.map(p => ({ name: p.name, orig: p.value, value: p.value, removed: false })) };
+  for (const r of props.rows) {
+    if (r.name !== "svn:externals") continue;
+    const x = await Go().ParseExternals(r.value);
+    if (x.ok) r.ext = x.externals; else r.extNote = true; // comments or an unusual form: edit as text
+  }
+  showErrIn($("propsErr"), null);
   $("propsTitle").textContent = "Properties of " + (rel === "." ? "the top folder" : rel + (res.isDir ? "/" : ""));
   renderProps();
   for (;;) {
     const r = await ask($("propsDlg"));
     if (r !== "ok") { props = null; return; }
     let set;
-    try { set = propChanges(); } catch (msg) { toast(msg); continue; }
+    try { set = await propChanges(); } catch (e) { showErrIn($("propsErr"), typeof e === "string" ? { message: e } : e); continue; }
     if (!Object.keys(set).length) { props = null; return; }
     try {
       await call("SetProps", state.view.path, rel, set);
-    } catch (e) { report(e); continue; } // the dialog opens again with the edits kept
+    } catch (e) { showErrIn($("propsErr"), e); continue; } // the dialog opens again with the edits kept
     props = null;
     state.checked.add(rel);
     state.known.add(rel);
@@ -1199,7 +1211,11 @@ async function openProps(rel) {
 
 // propChanges is what to send to SetProps: name → new value, "" to remove.
 // It throws a message for the user when something isn't filled in right.
-function propChanges() {
+async function propChanges() {
+  // The externals table becomes svn:externals text (Go checks each row).
+  for (const r of props.rows) {
+    if (r.ext && !r.removed) r.value = await call("FormatExternals", r.ext);
+  }
   const set = {};
   const seen = new Set();
   for (const r of props.rows) {
@@ -1253,7 +1269,10 @@ function renderProps() {
       r.value = sel.value;
       sel.onchange = () => { r.value = sel.value; };
       box.append(sel);
+    } else if (r.name === "svn:externals" && r.ext && !r.removed) {
+      box.append(externalsEditor(r));
     } else {
+      if (r.extNote) box.append(el("div", { class: "hint" }, "Shown as text: it has comments or a form the table can't show."));
       const lines = r.value.split("\n").length;
       const ta = el("textarea", { "aria-label": (r.name || "New property") + " value", rows: Math.min(Math.max(lines, 1), 10), readonly: !!k.readonly || r.removed, spellcheck: "false" });
       ta.value = r.value;
@@ -1273,11 +1292,49 @@ function renderProps() {
   add.value = "";
 }
 
+// externalsEditor is svn:externals as a table: a URL, a revision (empty for
+// the latest) and the folder it goes in, per row.
+function externalsEditor(r) {
+  const tbody = el("tbody");
+  const field = (x, key, attrs) => {
+    const i = el("input", { autocomplete: "off", spellcheck: "false", value: x[key], ...attrs });
+    i.oninput = () => { x[key] = i.value; };
+    return i;
+  };
+  for (const x of r.ext) {
+    tbody.append(el("tr", {},
+      el("td", {}, field(x, "url", { placeholder: "URL, e.g. ^/libs/common/trunk", "aria-label": "External URL" })),
+      el("td", { class: "rev" }, field(x, "rev", { placeholder: "latest", inputmode: "numeric", "aria-label": "Revision (empty for the latest)" })),
+      el("td", {}, field(x, "dir", { placeholder: "folder name", "aria-label": "Folder it goes in" })),
+      el("td", { class: "rm" }, el("button", { type: "button", class: "ghost", "aria-label": "Remove this external",
+        onclick: () => { r.ext.splice(r.ext.indexOf(x), 1); renderProps(); } }, "×"))));
+  }
+  const add = el("button", { type: "button", class: "ghost", onclick: () => {
+    r.ext.push({ url: "", rev: "", dir: "" });
+    renderProps();
+    const rows = $("propsList").querySelectorAll(".ext tbody tr");
+    const last = rows[rows.length - 1];
+    if (last) last.querySelector("input").focus();
+  } }, "+ Add an external");
+  const asText = el("button", { type: "button", class: "ghost", onclick: async () => {
+    try {
+      r.value = r.ext.length ? await call("FormatExternals", r.ext) : "";
+    } catch (e) { return showErrIn($("propsErr"), e); }
+    r.ext = null;
+    showErrIn($("propsErr"), null);
+    renderProps();
+  } }, "Edit as text");
+  return el("div", { class: "ext" },
+    el("table", {}, el("thead", {}, el("tr", {}, el("td", { class: "muted" }, "URL"), el("td", { class: "muted" }, "Revision"),
+      el("td", { class: "muted" }, "Folder"), el("td", {}))), tbody),
+    el("div", { class: "bar" }, add, asText));
+}
+
 $("propsAdd").onchange = () => {
   const v = $("propsAdd").value;
   if (!v || !props) return;
   const custom = v === "*";
-  props.rows.push({ name: custom ? "" : v, orig: null, value: "", removed: false, custom });
+  props.rows.push({ name: custom ? "" : v, orig: null, value: "", removed: false, custom, ext: v === "svn:externals" ? [{ url: "", rev: "", dir: "" }] : undefined });
   renderProps();
   const last = $("propsList").lastElementChild;
   const f = last && last.querySelector(custom ? "input" : "textarea, select");
@@ -1533,6 +1590,181 @@ $("applyPatchBtn").onclick = async () => {
   }
 };
 
+// ---- Renaming and moving -----------------------------------------------------------------------
+//
+// svn move keeps a file's history. A rename done in a file manager looks to
+// svn like a missing file and a new one: the hint above the change list
+// spots those and records them as moves.
+
+async function openMove(rel) {
+  $("moveFrom").value = rel || "";
+  $("moveTo").value = rel || "";
+  showErrIn($("moveErr"), null);
+  for (;;) {
+    const r = ask($("moveDlg"));
+    const to = $("moveTo");
+    to.focus();
+    // Select the name, not the folders before it: a rename is the usual case.
+    const slash = to.value.lastIndexOf("/") + 1, dot = to.value.lastIndexOf(".");
+    to.setSelectionRange(slash, dot > slash ? dot : to.value.length);
+    if (await r !== "ok") return;
+    const from = $("moveFrom").value.trim().replace(/\\/g, "/"), dest = $("moveTo").value.trim().replace(/\\/g, "/");
+    try {
+      await call("MoveFile", state.view.path, from, dest);
+    } catch (e) { showErrIn($("moveErr"), e); continue; }
+    tickMove(from, dest);
+    toast(`Renamed ${from} to ${dest}. Commit to share it.`, "ok");
+    await refreshWc(false);
+    return;
+  }
+}
+$("moveBtn").onclick = () => openMove(state.diffPath && state.diffPath !== "." ? state.diffPath : "");
+$("moveFileBtn").onclick = () => state.diffPath && openMove(state.diffPath);
+$("movePick").onclick = async () => {
+  try {
+    const rel = await call("PickFileIn", state.view.path, "Rename or move…");
+    if (rel) { $("moveFrom").value = rel; $("moveTo").value = rel; $("moveTo").focus(); }
+  } catch (e) { showErrIn($("moveErr"), e); }
+};
+
+// tickMove ticks both halves of a move: committed alone, the old name
+// would just be deleted.
+function tickMove(from, to) {
+  for (const p of [from, to]) { state.checked.add(p); state.known.add(p); }
+}
+
+let renamePairs = [];
+async function updateRenameHint() {
+  const wc = state.view && state.view.path;
+  const hint = $("renameHint");
+  if (!wc || !state.changes.some(c => c.item === "missing") || !state.changes.some(c => c.item === "unversioned")) {
+    hint.hidden = true;
+    return;
+  }
+  try {
+    const pairs = await call("RenameCandidates", wc);
+    if (!state.view || state.view.path !== wc) return;
+    renamePairs = pairs;
+    hint.hidden = !pairs.length;
+    if (!pairs.length) return;
+    const list = pairs.slice(0, 3).map(p => `${p.from}${p.dir ? "/" : ""} → ${p.to}${p.dir ? "/" : ""}`).join(", ") +
+      (pairs.length > 3 ? ` and ${pairs.length - 3} more` : "");
+    $("renameHintText").textContent = `These look renamed or moved outside svn: ${list}. Record ${pairs.length === 1 ? "it as a rename" : "them as renames"} to keep the history.`;
+  } catch { hint.hidden = true; }
+}
+$("renameHintBtn").onclick = () => busy($("renameHintBtn"), async () => {
+  await call("RecordRenames", state.view.path, renamePairs);
+  for (const p of renamePairs) tickMove(p.from, p.to);
+  toast(`Recorded ${renamePairs.length === 1 ? "1 rename" : renamePairs.length + " renames"}. Commit to share ${renamePairs.length === 1 ? "it" : "them"}.`, "ok");
+  $("renameHint").hidden = true;
+  await refreshWc(false);
+});
+
+// ---- Choosing folders (sparse working copies) ----------------------------------------------------
+//
+// Ticked: checked out in full; unticked: left out of this working copy;
+// a dash: partly there (open it to choose inside). Changes are collected
+// across folders and applied together.
+
+let fold = null; // {rel, want: Map(path -> true|false), depth: Map(path -> depth)}
+
+async function openFolders() {
+  fold = { rel: "", want: new Map(), depth: new Map() };
+  showErrIn($("foldersErr"), null);
+  loadFolders("");
+  for (;;) {
+    if (await ask($("foldersDlg")) !== "ok") { fold = null; return; }
+    const fetch = [], remove = [];
+    for (const [p, on] of fold.want) {
+      const d = fold.depth.get(p) || "";
+      const present = d !== "" && d !== "exclude";
+      if (on && d !== "infinity") fetch.push(p);
+      if (!on && present) remove.push(p);
+    }
+    if (!fetch.length && !remove.length) { fold = null; return; }
+    try {
+      await withProgress("Choosing folders", () => call("SetFolders", state.view.path, fetch, remove));
+      $("progDlg").close();
+    } catch (e) {
+      if ($("progDlg").open) { fold = null; await refreshWc(false); return; } // svn's output says what happened
+      showErrIn($("foldersErr"), e);
+      continue;
+    }
+    fold = null;
+    toast(`Done: ${fetch.length} fetched, ${remove.length} left out.`, "ok");
+    await refreshWc(false);
+    return;
+  }
+}
+$("foldersBtn").onclick = () => state.view && openFolders();
+
+async function loadFolders(rel) {
+  fold.rel = rel;
+  const c = $("foldersCrumbs");
+  c.replaceChildren(el("button", { type: "button", class: "ghost", onclick: () => loadFolders("") }, $("wcName").textContent || "top"));
+  let acc = "";
+  for (const part of rel ? rel.split("/") : []) {
+    acc = acc ? acc + "/" + part : part;
+    const to = acc;
+    c.append(el("span", { class: "muted" }, "/"), el("button", { type: "button", class: "ghost", onclick: () => loadFolders(to) }, part));
+  }
+  $("foldersList").replaceChildren(el("tr", {}, el("td", { class: "placeholder" }, "Asking the server…")));
+  let folders;
+  try {
+    folders = await call("Folders", state.view.path, rel);
+  } catch (e) {
+    $("foldersList").replaceChildren(el("tr", {}, el("td", { class: "placeholder" }, parseErr(e).message)));
+    return;
+  }
+  if (!fold || fold.rel !== rel) return;
+  for (const f of folders) {
+    const p = rel ? rel + "/" + f.name : f.name;
+    if (!fold.depth.has(p)) fold.depth.set(p, f.depth);
+  }
+  renderFolders(folders.map(f => f.name));
+}
+
+const DEPTH_TEXT = { infinity: "checked out", immediates: "partly", files: "partly", empty: "partly", exclude: "left out", "": "not checked out" };
+
+function renderFolders(names) {
+  const tb = $("foldersList");
+  tb.replaceChildren();
+  if (!names.length) tb.append(el("tr", {}, el("td", { class: "placeholder" }, "No folders in here.")));
+  for (const name of names) {
+    const p = fold.rel ? fold.rel + "/" + name : name;
+    const d = fold.depth.get(p) || "";
+    const present = d !== "" && d !== "exclude";
+    const box = el("input", { type: "checkbox", "aria-label": "Check out " + p });
+    const want = fold.want.get(p);
+    box.checked = want === undefined ? d === "infinity" : want;
+    box.indeterminate = want === undefined && present && d !== "infinity";
+    box.onchange = () => {
+      fold.want.set(p, box.checked);
+      if (box.checked === (d === "infinity") || (!box.checked && !present)) fold.want.delete(p); // back as it was
+      renderFolders(names);
+    };
+    const changed = fold.want.has(p);
+    const label = changed ? (fold.want.get(p) ? "will be checked out" : "will be left out") : DEPTH_TEXT[d] || d;
+    const tr = el("tr", { class: changed ? "changed" : "" },
+      el("td", {}, box),
+      el("td", { class: "name" }, name + "/"),
+      el("td", { class: "state" }, label),
+      el("td", {}, el("button", { type: "button", class: "ghost", title: "Choose the folders inside it", onclick: () => loadFolders(p) }, "Open")));
+    tr.dataset.key = p;
+    tr._space = () => box.click();
+    tr._enter = () => loadFolders(p);
+    tb.append(tr);
+  }
+  rovingRows(tb, false);
+  let get = 0, drop = 0;
+  for (const [q, on] of fold.want) {
+    const d = fold.depth.get(q) || "";
+    if (on) get++;
+    else if (d !== "" && d !== "exclude") drop++;
+  }
+  $("foldersSummary").textContent = get || drop ? `To apply: ${get} to check out, ${drop} to leave out.` : "";
+}
+
 // ---- Working copy buttons ----------------------------------------------------------------
 
 // ---- Incoming changes: "Update (3)" ----------------------------------------------------------
@@ -1558,13 +1790,29 @@ function setIncoming(n) {
 // bring for the open working copy. It never shows a login or an error (a
 // background check mustn't interrupt): on failure the badge stays as it was.
 async function checkIncoming() {
-  if (!state.view || state.view.type !== "wc" || document.hidden) return;
+  if (!state.view || state.view.type !== "wc") return;
+  // Hidden (minimised): only to notify, if that's on.
+  if (document.hidden && !(state.startup && state.startup.notify)) return;
   const wc = state.view.path;
   lastIncomingCheck = Date.now();
   try {
     const n = await Go().Incoming(wc);
     if (state.view && state.view.path === wc) setIncoming(n);
+    maybeNotify(wc, n);
   } catch { /* offline, or needs a login: try again later */ }
+}
+
+// maybeNotify shows a desktop notification when more incoming changes
+// appear while TrunkLine isn't in front. The first count seen for a working
+// copy is only noted (it was there before), and an update starts afresh.
+const notifiedCount = {};
+function maybeNotify(wc, n) {
+  const seen = notifiedCount[wc];
+  notifiedCount[wc] = Math.max(n, n === 0 ? 0 : seen || 0);
+  if (seen === undefined || n <= seen || document.hasFocus() || !state.startup.notify) return;
+  const name = (state.wcs.find(w => w.path === wc) || {}).name || wc.split(/[\\/]/).pop();
+  const files = n === 1 ? "1 file has" : n + " files have";
+  Go().Notify(`New commits in ${name}`, `${files} changed on the server. Update in TrunkLine to get them.`).catch(() => {});
 }
 setInterval(checkIncoming, INCOMING_EVERY);
 document.addEventListener("visibilitychange", () => {
@@ -1848,6 +2096,17 @@ async function listBrowse() {
         el("td", { class: "muted" }, dir ? "" : fmtSize(e.size)));
       tr.style.cursor = "pointer";
       const child = url.replace(/\/+$/, "") + "/" + encodeURIComponent(e.name);
+      const more = el("button", { type: "button", class: "ghost", "aria-label": "More for " + e.name, title: "Rename, move, delete, copy URL",
+        "aria-haspopup": "menu", "aria-expanded": "false" }, "⋯");
+      more.onclick = ev => {
+        ev.stopPropagation();
+        state.entry = { url: child, name: e.name, dir };
+        const m = $("entryMenu");
+        if (m.matches(":popover-open")) m.hidePopover();
+        m._btn = more;
+        m.showPopover();
+      };
+      tr.append(el("td", { class: "act" }, more));
       if (dir) {
         tr.onclick = () => { state.view.url = child; listBrowse(); };
       } else {
@@ -1858,7 +2117,7 @@ async function listBrowse() {
       tr._enter = tr.onclick;
       tb.append(tr);
     }
-    if (!entries.length) tb.append(el("tr", {}, el("td", { class: "placeholder", colspan: 5 }, "Empty folder")));
+    if (!entries.length) tb.append(el("tr", {}, el("td", { class: "placeholder", colspan: 6 }, "Empty folder")));
     tb._lastKey = null; // a new folder: start at its first row
     rovingRows(tb, hadFocus);
   } catch (e) { report(e); }
@@ -1873,6 +2132,75 @@ $("removeServerBtn").onclick = async () => {
   await reloadLists();
   showView("welcome");
 };
+
+// ---- Changing the repository from the browser --------------------------------------------------
+//
+// Each change is one commit straight to the repository (no working copy).
+
+// repoPath is a repository URL from the repository root ("/trunk/docs").
+function repoPath(u) {
+  const root = state.view.root || "";
+  return decodeURIComponent(u.startsWith(root) ? u.slice(root.length) || "/" : u);
+}
+
+// repoAct asks for a path (unless path is null) and a commit message, and
+// runs act(path, message) until it works or is canceled.
+async function repoAct({ title, what, pathLabel, path, okLabel, message, danger }, act) {
+  $("repoActTitle").textContent = title;
+  $("repoActWhat").textContent = what;
+  $("repoActPathRow").hidden = path === null;
+  $("repoActPathLabel").textContent = pathLabel || "";
+  $("repoActPath").value = path || "";
+  $("repoActMsg").value = message;
+  $("repoActOk").textContent = okLabel;
+  $("repoActOk").className = danger ? "danger" : "primary";
+  showErrIn($("repoActErr"), null);
+  for (;;) {
+    const r = ask($("repoActDlg"));
+    (path === null ? $("repoActMsg") : $("repoActPath")).focus();
+    if (await r !== "ok") return false;
+    try {
+      const rev = await call(...act($("repoActPath").value.trim(), $("repoActMsg").value.trim()));
+      toast(`${title}: done (r${rev}).`, "ok");
+      return true;
+    } catch (e) { showErrIn($("repoActErr"), e); }
+  }
+}
+
+$("repoMkdirBtn").onclick = () => flow(async () => {
+  const here = state.view.url.replace(/\/+$/, "");
+  const ok = await repoAct({ title: "New folder", what: "In " + repoPath(here), pathLabel: "Folder name", path: "",
+    okLabel: "Create", message: "" }, (name, msg) => {
+    if (!name || /[\\/]/.test(name)) throw { message: "Give the folder a name (no slashes)." };
+    return ["RepoMkdir", here + "/" + encodeURIComponent(name), msg || `Add folder ${repoPath(here + "/" + encodeURIComponent(name))}`];
+  });
+  if (ok) listBrowse();
+});
+$("repoCopyUrlBtn").onclick = () => copyText(state.view.url);
+
+async function copyText(text) {
+  try { await Go().CopyText(text); toast("Copied " + text, "ok"); } catch (e) { report(e); }
+}
+
+async function entryMove() {
+  const e = state.entry;
+  const from = repoPath(e.url);
+  const ok = await repoAct({ title: "Rename or move", what: `${from}${e.dir ? "/" : ""}: its history comes along. Working copies get the change when they update.`,
+    pathLabel: "New path (from the repository root)", path: from, okLabel: "Rename", message: "" }, (to, msg) => {
+    to = "/" + to.replace(/^\/+|\/+$/g, "");
+    if (to === "/") throw { message: "Give the new path." };
+    return ["RepoMove", e.url, state.view.root + encodePath(to), msg || `Move ${from} to ${to}`];
+  });
+  if (ok) listBrowse();
+}
+
+async function entryDelete() {
+  const e = state.entry;
+  const what = repoPath(e.url) + (e.dir ? "/" : "");
+  const ok = await repoAct({ title: "Delete", what: `Delete ${what} from the repository${e.dir ? ", with everything in it" : ""}? It stays in the history, so it can be brought back. Working copies lose it when they update.`,
+    path: null, okLabel: "Delete", message: `Delete ${what}`, danger: true }, (_, msg) => ["RepoDelete", e.url, msg || `Delete ${what}`]);
+  if (ok) listBrowse();
+}
 
 // ---- Checkout -----------------------------------------------------------------------------------
 
@@ -1906,8 +2234,10 @@ function folderName(url) {
 
 // askTarget opens the checkout dialog (also used for export) and resolves
 // with the chosen local folder, or "" if canceled.
-async function askTarget(title, note, okLabel) {
+async function askTarget(title, note, okLabel, withDepth) {
   const url = state.view.url;
+  $("coDepthRow").hidden = !withDepth;
+  $("coDepth").value = "";
   $("coTitle").textContent = title;
   $("coNote").textContent = note;
   $("coOk").textContent = okLabel;
@@ -1923,14 +2253,16 @@ async function askTarget(title, note, okLabel) {
 }
 
 $("checkoutHereBtn").onclick = async () => {
-  const target = await askTarget("Check out", "A working copy: you can change files and commit them back to this repository.", "Check out");
+  const target = await askTarget("Check out", "A working copy: you can change files and commit them back to this repository.", "Check out", true);
   if (!target) return;
+  const depth = $("coDepth").value;
   try {
-    const wc = await withProgress("Checking out " + $("coName").value, () => call("Checkout", $("coUrl").value.trim(), target));
+    const wc = await withProgress("Checking out " + $("coName").value, () => call("Checkout", $("coUrl").value.trim(), target, depth));
     $("progDlg").close();
     await reloadLists();
     toast("Checked out into " + wc.path, "ok");
-    openWc(wc.path);
+    await openWc(wc.path);
+    if (depth) openFolders(); // the top folder only: choose what else
   } catch (e) {
     if (parseErr(e).kind !== "canceled") report(e);
   }
@@ -2631,6 +2963,13 @@ async function openAbout() {
   if (!$("aboutDlg").open) ask($("aboutDlg"));
 }
 $("version").onclick = openAbout;
+$("prefsNotify").onchange = async () => {
+  const on = $("prefsNotify").checked;
+  try {
+    await Go().SetNotify(on);
+    state.startup.notify = on;
+  } catch (e) { report(e); }
+};
 $("prefsAuto").onchange = async () => {
   const on = $("prefsAuto").checked;
   try {
@@ -2653,7 +2992,7 @@ $("aboutRepo").onclick = async () => Go().OpenReleasePage(await Go().RepoURL()).
 // Buttons that open a dialog or start a long action: one at a time (flow).
 for (const id of ["addWcBtn", "welcomeWc", "addServerBtn", "welcomeServer", "revertBtn", "ignoreBtn", "removeWcBtn",
   "removeServerBtn", "checkoutHereBtn", "exportHereBtn", "importHereBtn", "newBranchBtn", "newTagBtn", "relocateBtn",
-  "switchUrlBtn", "lockBtn", "lockPickBtn", "unlockBtn", "updateInstall", "updateBtn", "savePatchBtn", "applyPatchBtn"]) {
+  "switchUrlBtn", "lockBtn", "lockPickBtn", "unlockBtn", "updateInstall", "updateBtn", "savePatchBtn", "applyPatchBtn", "moveBtn", "moveFileBtn", "foldersBtn"]) {
   const handler = $(id).onclick;
   if (handler) $(id).onclick = e => flow(() => handler(e));
 }
@@ -2714,6 +3053,7 @@ $("lookZoom").onchange = () => setLook({ zoom: Number($("lookZoom").value) });
 function openPrefs() {
   applyLook();
   $("prefsAuto").checked = state.startup.updateCheck;
+  $("prefsNotify").checked = state.startup.notify;
   if (!$("prefsDlg").open) ask($("prefsDlg"));
 }
 
@@ -2774,6 +3114,9 @@ const commands = {
   issue: () => openRepoPage("/issues/new"),
   github: () => openRepoPage(""),
   about: openAbout,
+  entryMove: () => flow(entryMove),
+  entryDelete: () => flow(entryDelete),
+  entryCopyUrl: () => copyText(state.entry.url),
 };
 
 document.addEventListener("keydown", e => {

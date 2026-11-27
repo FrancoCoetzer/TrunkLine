@@ -34,12 +34,13 @@ type Server struct {
 type Config struct {
 	WorkingCopies []WorkingCopy     `json:"workingCopies"`
 	Servers       []Server          `json:"servers"`
-	TrustedHosts  []string          `json:"trustedHosts"`    // host[:port] whose certificate failures are accepted
-	Usernames     map[string]string `json:"usernames"`       // host -> last username, to fill the login dialog
-	NoUpdateCheck bool              `json:"noUpdateCheck"`   // don't look for new releases automatically
-	Theme         string            `json:"theme,omitempty"` // "dark", "light", or "" to follow the system
-	Font          string            `json:"font,omitempty"`  // "regular", or "" for monospace
-	Zoom          int               `json:"zoom,omitempty"`  // the window's size in percent, or 0 for 100
+	TrustedHosts  []string          `json:"trustedHosts"`       // host[:port] whose certificate failures are accepted
+	Usernames     map[string]string `json:"usernames"`          // host -> last username, to fill the login dialog
+	NoUpdateCheck bool              `json:"noUpdateCheck"`      // don't look for new releases automatically
+	NoNotify      bool              `json:"noNotify,omitempty"` // no desktop notifications about new commits
+	Theme         string            `json:"theme,omitempty"`    // "dark", "light", or "" to follow the system
+	Font          string            `json:"font,omitempty"`     // "regular", or "" for monospace
+	Zoom          int               `json:"zoom,omitempty"`     // the window's size in percent, or 0 for 100
 
 	// Note says, when Load couldn't read the settings file, what it did
 	// instead (for the app to show once).
