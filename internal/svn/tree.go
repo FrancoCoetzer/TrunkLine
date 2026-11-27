@@ -12,25 +12,26 @@ import (
 
 // Move renames or moves src to dst in a working copy (both paths in it),
 // keeping the history: svn records dst as a copy of src. Local changes come
-// along. Missing parent folders of dst are made.
+// along. dst's folder is put under svn first if it's new or missing: svn 1.14
+// on Windows fails "move --parents" into a new folder (E155004: the working
+// copy is locked, by its own move).
 func (c *Client) Move(ctx context.Context, o Opts, src, dst string) error {
-	_, err := c.run(ctx, o, nil, "move", "--parents", "--", src, dst)
+	if err := c.ensureFolder(ctx, o, filepath.Dir(dst)); err != nil {
+		return err
+	}
+	_, err := c.run(ctx, o, nil, "move", "--", src, dst)
 	return err
 }
 
-// AddFolders puts dir (in the working copy wc) under svn if it's a new
-// folder, with any new folders above it, but not what's in it.
-func (c *Client) AddFolders(ctx context.Context, o Opts, wc, dir string) error {
-	if r, err := filepath.Rel(wc, dir); err != nil || r == "." || strings.HasPrefix(r, "..") {
-		return nil // the top of the working copy (or outside it)
-	}
-	changes, _, err := c.Status(ctx, o, dir, false)
-	if err != nil {
+// ensureFolder puts dir (and new folders above it) under svn: svn mkdir when
+// it isn't on disk, svn add of just the folder when it's there but new. A
+// folder already in svn is left alone (add --force).
+func (c *Client) ensureFolder(ctx context.Context, o Opts, dir string) error {
+	if st, err := os.Stat(dir); err == nil && st.IsDir() {
+		_, err = c.run(ctx, o, nil, "add", "--depth", "empty", "--parents", "--force", "--", dir)
 		return err
 	}
-	if len(changes) > 0 && changes[0].Path == "." && changes[0].Item == "unversioned" {
-		_, err = c.run(ctx, o, nil, "add", "--depth", "empty", "--parents", "--", dir)
-	}
+	_, err := c.run(ctx, o, nil, "mkdir", "--parents", "--", dir)
 	return err
 }
 

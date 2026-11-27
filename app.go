@@ -2132,11 +2132,6 @@ func (a *App) RecordRenames(wc string, pairs []RenamePair) error {
 		if err := os.Rename(to, from); err != nil {
 			return err
 		}
-		// svn moves into a folder it knows: add a new one (only the folder).
-		if err := c.AddFolders(a.ctx, a.opts(host), wc, filepath.Dir(to)); err != nil {
-			os.Rename(from, to)
-			return a.wrap(err, host)
-		}
 		if err := c.Move(a.ctx, a.opts(host), from, to); err != nil {
 			os.Rename(from, to) // put it back as the user left it
 			return a.wrap(err, host)
