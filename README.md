@@ -7,6 +7,12 @@ TortoiseSVN only runs on Windows and looks its age, and the cross-platform
 clients are paid or unmaintained. TrunkLine aims to be a clean, fast client
 that works the same on both, built with Go and [Wails](https://wails.io/).
 
+![Changes: a commit in progress, with the file's diff](docs/screenshots/changes.png)
+
+![The revision graph: trunk, a branch, a merge and a tag](docs/screenshots/graph.png)
+
+![History in the light theme, with a side-by-side diff](docs/screenshots/history-light.png)
+
 ## What it does
 
 - **Working copies**: a sidebar of your checkouts. Add one you already have, or
