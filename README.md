@@ -188,6 +188,7 @@ make run        # build and start it
 make windows    # build/bin/trunkline.exe (cross-built, no cgo)
 make test       # go test ./... (needs svn and svnadmin: the tests use a real repository)
 make vet        # Linux and Windows
+make ui-test    # UI tests: Playwright drives the dev build (tests/ui; needs Node.js)
 make dev        # debug build: Inspect in the window, and served on http://localhost:34115
 make install-desktop   # a "TrunkLine (dev)" launcher in the app menu
 make winres     # redraw the Windows icon and installer pictures (after changing packaging/trunkline.svg; needs Pillow)

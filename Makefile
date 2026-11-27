@@ -12,7 +12,7 @@ LINUX_TAGS := $(APP_TAGS),webkit2_41
 # STAMP(version, install kind): what the updater knows about this build.
 STAMP       = -X trunkline/internal/update.Version=$(1) -X trunkline/internal/update.Install=$(2)
 
-.PHONY: all app run dev windows winres test vet install-desktop dist dist-linux dist-windows release clean
+.PHONY: all app run dev windows winres test ui-test vet install-desktop dist dist-linux dist-windows release clean
 
 all: test app
 
@@ -27,6 +27,16 @@ run: app
 dev:
 	go build -tags dev,webkit2_41 -ldflags "$(call STAMP,$(VERSION),source)" -o build/bin/trunkline-dev .
 	build/bin/trunkline-dev -assetdir frontend/dist -devserver localhost:34115
+
+# The UI tests (tests/ui): Playwright drives the dev build's page against a
+# throwaway repository. Needs Node.js; the app's window goes to a virtual
+# display when xvfb-run is installed.
+XVFB = $(if $(shell command -v xvfb-run),xvfb-run -a env UI_XVFB=1)
+
+ui-test:
+	go build -tags dev,webkit2_41 -ldflags "$(call STAMP,$(VERSION),source)" -o build/bin/trunkline-dev .
+	cd tests/ui && npm ci --no-audit --no-fund --silent
+	cd tests/ui && $(XVFB) npx playwright test
 
 # The Windows resources linked into the .exe (icon, version, manifest) are
 # written for each build by make_syso.py, with X.Y.Z of the last tag.

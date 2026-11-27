@@ -29,6 +29,42 @@ jobs:
       - run: make test
       - run: make app windows
 
+  # The UI tests (tests/ui): Playwright drives the dev build's page against a
+  # throwaway repository; the app's window goes to xvfb. The report, with a
+  # screenshot of every view in both themes, is kept with the run.
+  ui:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev subversion xvfb
+
+      - name: Install Playwright's Chromium
+        run: |
+          cd tests/ui
+          npm ci --no-audit --no-fund
+          npx playwright install --with-deps chromium
+
+      - run: make ui-test
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ui-report
+          path: tests/ui/playwright-report
+          retention-days: 14
+
   # The tests on Windows itself: drive letters, svn.exe (which expands
   # wildcards in its arguments and writes paths in the ANSI code page), CRLF
   # output, file:///C:/ URLs.

@@ -1,0 +1,11 @@
+{
+  "name": "trunkline-ui-tests",
+  "private": true,
+  "description": "TrunkLine's UI tests: Playwright drives the page that make dev serves (see README.md here).",
+  "scripts": {
+    "test": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.65.0"
+  }
+}

@@ -15,6 +15,7 @@ step; the Makefile stamps the version.
 make         # go test ./..., then build/bin/trunkline
 make test    # needs svn and svnadmin: tests create real repositories in temp dirs
 make vet     # Linux and Windows
+make ui-test # Playwright against the dev build (tests/ui; needs Node.js)
 ```
 
 Always build with `make` (it stamps the version). The frontend is embedded:

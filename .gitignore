@@ -1,4 +1,9 @@
 build/
+# UI tests (tests/ui)
+node_modules/
+tests/ui/test-results/
+tests/ui/playwright-report/
+tests/ui/.fixture.json
 # Windows resources, written for each build by packaging/windows/make_syso.py
 *.syso
 
