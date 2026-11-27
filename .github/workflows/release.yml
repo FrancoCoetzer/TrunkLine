@@ -5,6 +5,8 @@
 #   linux     .deb and .rpm, built on an x64 and an ARM64 machine (the app
 #             links GTK and WebKit, so it isn't cross-built), after the tests
 #   windows   the setups (x64, ARM64) and the .msi (x64), cross-built
+#   flatpak   a .flatpak bundle for x64 and ARM64 (svn built in)
+#   snap      a .snap for x64 and ARM64 (snapcraft)
 #   publish   SHA256SUMS of all of them, and the release
 #
 # Run by hand (Actions, Release, Run workflow), it builds a test set with a
@@ -67,7 +69,32 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y nsis wixl
 
+      # Signing (packaging/windows/sign.sh), when the repository has secrets
+      # for it; without them the Windows files are built unsigned:
+      #   SIGN_PFX_BASE64 + SIGN_PASSWORD   a certificate file (base64), signed with osslsigncode
+      #   SIGN_JSIGN_ARGS                   jsign's key store options (Azure Trusted Signing, …)
+      - name: Set up signing
+        env:
+          SIGN_PFX_BASE64: ${{ secrets.SIGN_PFX_BASE64 }}
+          SIGN_JSIGN_ARGS: ${{ secrets.SIGN_JSIGN_ARGS }}
+        run: |
+          if [[ -n $SIGN_PFX_BASE64 ]]; then
+            sudo apt-get install -y osslsigncode
+            umask 077
+            base64 -d <<< "$SIGN_PFX_BASE64" > "$RUNNER_TEMP/sign.pfx"
+            echo "SIGN_PFX=$RUNNER_TEMP/sign.pfx" >> "$GITHUB_ENV"
+          elif [[ -n $SIGN_JSIGN_ARGS ]]; then
+            curl -fsSL -o "$RUNNER_TEMP/jsign.jar" https://github.com/ebourg/jsign/releases/download/7.6/jsign-7.6.jar
+            echo "6cf58aa080e7ff82656f320cff8d4a3bff30408df8766806dcba3740dd839fa5  $RUNNER_TEMP/jsign.jar" | sha256sum -c
+            echo "SIGN_JSIGN=java -jar $RUNNER_TEMP/jsign.jar" >> "$GITHUB_ENV"
+          else
+            echo "No signing secrets: the Windows files are built unsigned."
+          fi
+
       - run: make dist-windows TAG="$TAG"
+        env:
+          SIGN_PASSWORD: ${{ secrets.SIGN_PASSWORD }}
+          SIGN_JSIGN_ARGS: ${{ secrets.SIGN_JSIGN_ARGS }}
 
       - uses: actions/upload-artifact@v4
         with:
@@ -75,8 +102,53 @@ jobs:
           path: build/dist/*
           if-no-files-found: error
 
+  flatpak:
+    strategy:
+      matrix:
+        runner: [ubuntu-24.04, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Flatpak tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y flatpak flatpak-builder
+          # flatpak-builder sandboxes each build step with user namespaces,
+          # which Ubuntu 24.04 restricts by default (this machine is throwaway).
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+
+      - run: packaging/dist.sh flatpak "$TAG"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-flatpak-${{ matrix.runner }}
+          path: build/dist/*.flatpak
+          if-no-files-found: error
+
+  snap:
+    strategy:
+      matrix:
+        runner: [ubuntu-24.04, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # the snap's version comes from the last tag
+
+      - uses: snapcore/action-build@v1
+        id: snap
+
+      - run: mkdir -p build/dist && cp "${{ steps.snap.outputs.snap }}" build/dist/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-snap-${{ matrix.runner }}
+          path: build/dist/*.snap
+          if-no-files-found: error
+
   publish:
-    needs: [linux, windows]
+    needs: [linux, windows, flatpak, snap]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4

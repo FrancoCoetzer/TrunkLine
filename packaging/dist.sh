@@ -8,7 +8,12 @@
 #                                        cross-built)
 #   packaging/dist.sh windows <vX.Y.Z>   setup .exe for x64 and ARM64, .msi for
 #                                        x64 (cross-built: no cgo)
+#   packaging/dist.sh flatpak <vX.Y.Z>   a .flatpak bundle for this machine's
+#                                        processor (flatpak-builder; the GNOME
+#                                        runtime comes from Flathub)
 #   packaging/dist.sh sums               SHA256SUMS of everything in build/dist
+#
+# (The .snap is built by snapcraft from snap/snapcraft.yaml.)
 #
 # File names must match internal/update's AssetName. Each build is stamped
 # with its version and install kind (deb, rpm, windows, msi) for the updater.
@@ -24,7 +29,7 @@ app_tags=desktop,production
 linux_tags=$app_tags,webkit2_41
 
 usage() {
-  echo "usage: dist.sh linux|windows <vX.Y.Z> | dist.sh sums" >&2
+  echo "usage: dist.sh linux|windows|flatpak <vX.Y.Z> | dist.sh sums" >&2
   exit 1
 }
 
@@ -78,6 +83,15 @@ windows() {
   tags=$app_tags
   extra="-H windowsgui"
   local arch setup
+  # Signing (packaging/windows/sign.sh), when it's set up.
+  nsis_sign=()
+  if [[ -n ${SIGN_PFX:-}${SIGN_JSIGN:-} ]]; then
+    if [[ -n ${SIGN_PFX:-} ]]; then
+      need osslsigncode osslsigncode
+    fi
+    nsis_sign=(-DSIGNCMD="$root/packaging/windows/sign.sh")
+    echo "== signing the Windows files"
+  fi
   for arch in amd64 arm64; do
     echo "== $tag: Windows $arch"
     python3 packaging/windows/make_syso.py "$v" "$arch"
@@ -87,16 +101,44 @@ windows() {
       setup="trunkline-$v-arm64-setup.exe"
     fi
     build "$stage/windows-$arch/trunkline.exe" windows GOOS=windows GOARCH="$arch"
+    packaging/windows/sign.sh "$stage/windows-$arch/trunkline.exe"
+    # The setup signs its uninstaller and itself through sign.sh as it's made.
     makensis -V2 -DVERSION="$v" -DAPPEXE="$root/$stage/windows-$arch/trunkline.exe" -DAPPARCH="$arch" -DLICENSEFILE="$root/LICENSE" \
-      -DICONFILE="$root/packaging/windows/trunkline.ico" -DOUTFILE="$root/$dist/$setup" packaging/windows/installer.nsi
+      -DICONFILE="$root/packaging/windows/trunkline.ico" -DOUTFILE="$root/$dist/$setup" "${nsis_sign[@]}" packaging/windows/installer.nsi
   done
   # The .msi: x64 only (wixl can't make an ARM64 one).
   echo "== $tag: Windows .msi"
   python3 packaging/windows/make_syso.py "$v" amd64
   build "$stage/msi/trunkline.exe" msi GOOS=windows GOARCH=amd64
+  packaging/windows/sign.sh "$stage/msi/trunkline.exe"
   wixl -a x64 -D Version="$v" -D AppExe="$root/$stage/msi/trunkline.exe" -D License="$root/LICENSE" \
     -D Icon="$root/packaging/windows/trunkline.ico" -o "$dist/trunkline-$v-x64.msi" packaging/windows/trunkline.wxs \
     2> >(grep -v -e CRITICAL -e '^$' >&2)
+  packaging/windows/sign.sh "$dist/trunkline-$v-x64.msi"
+}
+
+# (Not named flatpak: it runs the flatpak command.)
+build_flatpak() {
+  need flatpak-builder flatpak-builder
+  local arch
+  case $(uname -m) in
+    x86_64 | aarch64) arch=$(uname -m) ;;
+    *)
+      echo "no Flatpak for $(uname -m)" >&2
+      exit 1
+      ;;
+  esac
+  local id=io.github.FrancoCoetzer.TrunkLine work=build/flatpak
+  mkdir -p "$work"
+  # The manifest with the version, and the project's path made absolute.
+  sed -e "s|@VERSION@|$v|g" -e "s|path: \.\./\.\.|path: $root|" "packaging/flatpak/$id.yml" > "$work/$id.yml"
+  echo "== $tag: Flatpak $arch"
+  flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+  flatpak-builder --user --install-deps-from=flathub --force-clean --disable-rofiles-fuse \
+    --state-dir="$work/state" --repo="$work/repo" "$work/app" "$work/$id.yml"
+  flatpak build-bundle --runtime-repo=https://dl.flathub.org/repo/flathub.flatpakrepo \
+    "$work/repo" "$dist/trunkline-$v-$arch.flatpak" "$id"
+  ls -l "$dist/trunkline-$v-$arch.flatpak"
 }
 
 sums() {
@@ -108,7 +150,7 @@ case $what in
   sums)
     sums
     ;;
-  linux | windows)
+  linux | windows | flatpak)
     tag=${2:-}
     if [[ -z $tag ]]; then
       echo "no tag: HEAD is not at a release tag (make release), or give one: make dist TAG=v9.9.9 for a test build" >&2
@@ -119,7 +161,11 @@ case $what in
       exit 1
     fi
     v=${tag#v}
-    "$what"
+    if [[ $what == "flatpak" ]]; then
+      build_flatpak
+    else
+      "$what"
+    fi
     ;;
   *)
     usage

@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.FrancoCoetzer.TrunkLine</id>
+  <name>TrunkLine</name>
+  <summary>Desktop client for Subversion (SVN)</summary>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-or-later</project_license>
+  <developer id="io.github.francocoetzer">
+    <name>Franco Coetzer</name>
+  </developer>
+  <description>
+    <p>
+      TrunkLine works with Subversion repositories: browse them, check out,
+      see your changes with diffs, commit, update and resolve conflicts.
+    </p>
+    <ul>
+      <li>History with search, blame, compare and a revision graph</li>
+      <li>Branches, tags, switching and merging, with a merge editor for conflicts</li>
+      <li>Locks, changelists, properties, patches and sparse checkouts</li>
+      <li>Export, import, and changes made straight in the repository</li>
+    </ul>
+  </description>
+  <launchable type="desktop-id">io.github.FrancoCoetzer.TrunkLine.desktop</launchable>
+  <url type="homepage">https://github.com/FrancoCoetzer/TrunkLine</url>
+  <url type="bugtracker">https://github.com/FrancoCoetzer/TrunkLine/issues</url>
+  <content_rating type="oars-1.1"/>
+  <categories>
+    <category>Development</category>
+    <category>RevisionControl</category>
+  </categories>
+</component>

@@ -5,3 +5,9 @@ build/
 # Windows test handoff (shared by hand, never committed)
 test.md
 test-result.md
+
+# snapcraft, run locally
+/parts/
+/stage/
+/prime/
+*.snap

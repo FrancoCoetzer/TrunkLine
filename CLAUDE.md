@@ -73,6 +73,15 @@ rebuild after editing `frontend/dist`.
   build's version and install kind (deb, rpm, windows, msi, source) are
   stamped by `packaging/dist.sh` and the Makefile; a plain `go build` has
   neither and never offers updates.
+- **Signing** (Windows): `packaging/windows/sign.sh` signs each program, the
+  setup (and its uninstaller, through NSIS's `!finalize`/`!uninstfinalize`)
+  and the .msi, when signing is set up (`SIGN_PFX` for osslsigncode, or
+  `SIGN_JSIGN` for jsign and a cloud key); otherwise it does nothing. The
+  release workflow sets it up from repository secrets.
+- **Flatpak and snap**: `packaging/flatpak/` (built by `dist.sh flatpak`,
+  svn 1.14 built in from source) and `snap/snapcraft.yaml` (svn from
+  Ubuntu's package). Both are stamped with their install kind; the updater
+  only tells their users a release exists.
 - **Processors**: Linux packages are built natively on x64 and ARM64 (cgo:
   GTK and WebKit can't be cross-built); Windows is cross-built for both. The
   release workflow runs the Linux half on GitHub's ARM64 runner.

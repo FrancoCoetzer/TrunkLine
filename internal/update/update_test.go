@@ -182,6 +182,9 @@ func TestAssetNames(t *testing.T) {
 		{InstallWindows, "arm64", "trunkline-1.2.3-arm64-setup.exe"},
 		{InstallMSI, "amd64", "trunkline-1.2.3-x64.msi"},
 		{InstallMSI, "arm64", ""},
+		{InstallFlatpak, "amd64", "trunkline-1.2.3-x86_64.flatpak"},
+		{InstallFlatpak, "arm64", "trunkline-1.2.3-aarch64.flatpak"},
+		{InstallSnap, "arm64", "trunkline_1.2.3_arm64.snap"},
 		{InstallDeb, "riscv64", ""},
 		{InstallSource, "amd64", ""},
 	} {

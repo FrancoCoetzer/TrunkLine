@@ -3179,7 +3179,7 @@ function describeUpdate(info) {
 async function openAbout() {
   const s = state.startup;
   const kind = await Go().InstallKind();
-  $("aboutVersion").textContent = `${s.version} (${{ deb: ".deb package", rpm: ".rpm package", windows: "Windows setup", msi: "Windows .msi", source: "built from source" }[kind] || kind})`;
+  $("aboutVersion").textContent = `${s.version} (${{ deb: ".deb package", rpm: ".rpm package", flatpak: "Flatpak", snap: "Snap", windows: "Windows setup", msi: "Windows .msi", source: "built from source" }[kind] || kind})`;
   $("aboutSvn").textContent = s.svnError ? "not found" : `${s.svnVersion} (${s.svnPath})`;
   if (!$("aboutDlg").open) ask($("aboutDlg"));
 }

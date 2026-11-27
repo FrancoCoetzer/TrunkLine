@@ -14,6 +14,13 @@ Unicode true
   !define APPARCH amd64
 !endif
 
+; Signing: SIGNCMD (packaging/windows/sign.sh) signs the uninstaller as it's
+; written into the setup, then the finished setup.
+!ifdef SIGNCMD
+  !uninstfinalize '"${SIGNCMD}" "%1"' = 0
+  !finalize '"${SIGNCMD}" "%1"' = 0
+!endif
+
 ; An ARM64 program can't run on an x64 PC: say so instead of installing it.
 ; (The x64 one runs on ARM64 Windows 11, emulated.)
 Function .onInit

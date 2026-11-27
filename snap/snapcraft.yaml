@@ -1,0 +1,60 @@
+# TrunkLine as a snap (snapcraft, in the release workflow; locally:
+# snapcraft pack). Installs from the file with:
+#   sudo snap install --dangerous trunkline_X.Y.Z_<arch>.snap
+# (--dangerous: a file from the release page rather than the Snap Store.)
+#
+# Strictly confined: svn comes from Ubuntu 24.04's package, inside the snap.
+# It reaches working copies in your home folder (and, once connected, on
+# removable media) and the network; svn saves passwords in the keyring
+# through password-manager-service, which needs connecting once:
+#   sudo snap connect trunkline:password-manager-service
+name: trunkline
+title: TrunkLine
+summary: Desktop client for Subversion (SVN)
+description: |
+  TrunkLine works with Subversion repositories: browse them, check out, see
+  your changes with diffs, commit, update and resolve conflicts. History
+  with search, blame, compare and a revision graph; branches, tags,
+  switching and merging, with a merge editor for conflicts; locks,
+  changelists, properties, patches and sparse checkouts.
+website: https://github.com/FrancoCoetzer/TrunkLine
+issues: https://github.com/FrancoCoetzer/TrunkLine/issues
+license: GPL-3.0-or-later
+icon: packaging/trunkline.svg
+base: core24
+grade: stable
+confinement: strict
+adopt-info: trunkline
+platforms:
+  amd64:
+  arm64:
+
+apps:
+  trunkline:
+    command: bin/trunkline
+    desktop: usr/share/applications/trunkline.desktop
+    extensions: [gnome]
+    plugs:
+      - home
+      - network
+      - removable-media
+      - password-manager-service
+
+parts:
+  trunkline:
+    plugin: nil
+    source: .
+    build-snaps:
+      - go/1.26/stable
+    stage-packages:
+      - subversion
+    override-build: |
+      version="$(git describe --tags --match 'v[0-9]*' --abbrev=0 2>/dev/null || echo v0.0.0)"
+      craftctl set version="${version#v}"
+      export GOTOOLCHAIN=auto GOFLAGS=-buildvcs=false CGO_ENABLED=1
+      go build -tags desktop,production,webkit2_41 -trimpath \
+        -ldflags "-s -w -X trunkline/internal/update.Version=$version -X trunkline/internal/update.Install=snap" \
+        -o "$CRAFT_PART_INSTALL/bin/trunkline" .
+      install -Dm644 packaging/linux/trunkline.desktop "$CRAFT_PART_INSTALL/usr/share/applications/trunkline.desktop"
+      sed -i -e 's|^Icon=.*|Icon=${SNAP}/meta/gui/icon.svg|' -e 's|^Exec=.*|Exec=trunkline|' \
+        "$CRAFT_PART_INSTALL/usr/share/applications/trunkline.desktop"

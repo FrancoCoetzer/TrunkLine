@@ -124,10 +124,19 @@ Download the latest release from the
 - **Fedora / openSUSE** (Fedora 40 or newer, openSUSE Tumbleweed):
   `trunkline-X.Y.Z-1.x86_64.rpm` (`.aarch64.rpm` on ARM), then
   `sudo dnf install ./trunkline-X.Y.Z-1.x86_64.rpm` (or `sudo zypper install`).
+- **Any Linux, as a Flatpak**: `trunkline-X.Y.Z-x86_64.flatpak`
+  (`-aarch64.flatpak` on ARM), then
+  `flatpak install --user ./trunkline-X.Y.Z-x86_64.flatpak`. svn comes inside
+  it; it reaches working copies in your home folder.
+- **Any Linux, as a snap**: `trunkline_X.Y.Z_amd64.snap` (`_arm64.snap`), then
+  `sudo snap install --dangerous ./trunkline_X.Y.Z_amd64.snap` (`--dangerous`
+  because it comes from here rather than the Snap Store). svn comes inside it.
+  To let svn save passwords in the keyring:
+  `sudo snap connect trunkline:password-manager-service`.
 - **Windows**: `trunkline-X.Y.Z-setup.exe`, or `trunkline-X.Y.Z-arm64-setup.exe`
   on an ARM PC (such as a Snapdragon laptop). It installs for your user only
-  (no admin rights). The installer isn't code-signed yet, so Windows
-  SmartScreen may warn: click **More info**, then **Run anyway**.
+  (no admin rights). Unless a release says it's signed, Windows SmartScreen
+  may warn: click **More info**, then **Run anyway**.
 - **Windows, as an .msi** (for deployment tools): `trunkline-X.Y.Z-x64.msi`.
   Double-clicked, it installs for that user only, like the setup. For
   everyone on the machine, an administrator runs
@@ -136,7 +145,9 @@ Download the latest release from the
 TrunkLine checks for new releases when it starts and every few hours, and
 offers to install them (one password prompt on Linux, none on Windows).
 A copy installed for all users from the .msi doesn't update itself: it says a
-new release exists, and whoever installed it installs the new .msi. Turn
+new release exists, and whoever installed it installs the new .msi. Nor do
+the Flatpak and the snap (their sandbox doesn't let an app replace itself):
+install the new file the same way. Turn
 the checks off in Preferences, or check by hand in Help, Check for updates.
 
 ## Requirements
@@ -202,8 +213,11 @@ Planned for later:
 - A three-way merge editor for conflicts (mine, theirs and the result side by
   side), instead of only keep mine / take theirs / I edited it.
 - A revision graph: branches, merges and tags over time.
-- Code-signed Windows installers (no SmartScreen warning).
-- Flatpak and Snap packages.
+- Code-signed Windows installers (no SmartScreen warning): the release
+  workflow signs them once the repository has signing secrets (see
+  `packaging/windows/sign.sh`); it needs a certificate or a signing service.
+- Publishing to Flathub and the Snap Store, so those packages update
+  themselves.
 - When svn 1.15 reaches the distributions: choosing which svn TrunkLine uses,
   a clear message for svn older than 1.10, and an explanation when a working
   copy is in 1.15's new format and an older svn can't open it.

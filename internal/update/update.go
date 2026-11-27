@@ -18,6 +18,9 @@
 //     to close, runs msiexec and starts the app again. For all users (an
 //     administrator's msiexec ALLUSERS=1), whoever installed it updates it:
 //     it only says that a new release exists.
+//   - "flatpak", "snap": installed from the .flatpak or .snap. It only says
+//     that a new release exists: the app can't replace itself from inside
+//     their sandbox.
 //   - "source" (or unstamped): built from a clone. It only says that a new
 //     release exists; you pull and rebuild yourself.
 package update
@@ -61,6 +64,8 @@ const (
 	InstallWindows = "windows"
 	InstallMSI     = "msi"
 	InstallRPM     = "rpm"
+	InstallFlatpak = "flatpak"
+	InstallSnap    = "snap"
 	InstallSource  = "source"
 )
 
@@ -123,6 +128,12 @@ func AssetName(install, arch string, v Semver) string {
 		return fmt.Sprintf("trunkline-%s-arm64-setup.exe", ver)
 	case install == InstallMSI && arch == "amd64":
 		return fmt.Sprintf("trunkline-%s-x64.msi", ver) // wixl can't make an ARM64 .msi
+	case install == InstallFlatpak && arch == "amd64":
+		return fmt.Sprintf("trunkline-%s-x86_64.flatpak", ver)
+	case install == InstallFlatpak && arch == "arm64":
+		return fmt.Sprintf("trunkline-%s-aarch64.flatpak", ver)
+	case install == InstallSnap && (arch == "amd64" || arch == "arm64"):
+		return fmt.Sprintf("trunkline_%s_%s.snap", ver, arch) // snapcraft's names are Go's
 	}
 	return ""
 }
@@ -321,6 +332,10 @@ func (g *GitHub) Check(ctx context.Context) (Info, error) {
 		info.Manual = "built from source: pull and rebuild to update"
 	case install == InstallMSI && !perUserMSI():
 		info.Manual = "installed for all users: get the new .msi from the release page, or ask whoever installed it"
+	case install == InstallFlatpak:
+		info.Manual = "installed with Flatpak: get the new .flatpak from the release page and open it"
+	case install == InstallSnap:
+		info.Manual = "installed as a snap: get the new .snap from the release page"
 	}
 	info.CanInstall = info.Available && info.Manual == ""
 	return info, nil
@@ -340,6 +355,9 @@ func (g *GitHub) Install(ctx context.Context, tag string, progress func(string))
 	}
 	if install == InstallMSI && !perUserMSI() {
 		return "", errors.New("this copy was installed for all users: whoever installed it updates it")
+	}
+	if install == InstallFlatpak || install == InstallSnap {
+		return "", errors.New("this copy is a " + install + ": install the new one from the release page")
 	}
 	rs, err := g.Releases(ctx)
 	if err != nil {

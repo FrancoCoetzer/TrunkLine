@@ -1,0 +1,121 @@
+# TrunkLine as a Flatpak. packaging/dist.sh flatpak <vX.Y.Z> builds it
+# (flatpak-builder) and writes a bundle, trunkline-X.Y.Z-<arch>.flatpak,
+# that installs with: flatpak install --user trunkline-X.Y.Z-<arch>.flatpak
+#
+# The sandbox can't use the system's svn, so svn 1.14 (the long-term
+# release, as Debian and Ubuntu ship it) is built in, with Serf for http(s)
+# and the GNOME keyring for saved passwords. @VERSION@ is filled in by
+# dist.sh.
+id: io.github.FrancoCoetzer.TrunkLine
+runtime: org.gnome.Platform
+runtime-version: "51"
+sdk: org.gnome.Sdk
+sdk-extensions:
+  - org.freedesktop.Sdk.Extension.golang
+command: trunkline
+finish-args:
+  - --share=network
+  - --share=ipc
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --device=dri
+  # Working copies can be anywhere in your home folder.
+  - --filesystem=home
+  # svn saves passwords in the GNOME keyring (Secret Service).
+  - --talk-name=org.freedesktop.secrets
+  # Notifications about new commits.
+  - --talk-name=org.freedesktop.Notifications
+cleanup:
+  - /include
+  - /lib/pkgconfig
+  - /share/man
+  - /build-tools
+  - "*.a"
+  - "*.la"
+  - /bin/apr-1-config
+  - /bin/apu-1-config
+modules:
+  - name: apr
+    config-opts:
+      - --disable-static
+    sources:
+      - type: archive
+        url: https://archive.apache.org/dist/apr/apr-1.7.6.tar.bz2
+        sha256: 49030d92d2575da735791b496dc322f3ce5cff9494779ba8cc28c7f46c5deb32
+
+  - name: apr-util
+    config-opts:
+      - --with-apr=/app
+      - --disable-static
+    sources:
+      - type: archive
+        url: https://archive.apache.org/dist/apr/apr-util-1.6.6.tar.bz2
+        sha256: aa77dd25f036731b7246abbfbebe6cc813b42799b62c874bc82bd4e1f90f2918
+
+  # Serf builds with SCons, only needed while building.
+  - name: scons
+    buildsystem: simple
+    build-commands:
+      - pip3 install --no-index --no-deps --prefix=/app/build-tools scons-4.11.1-py3-none-any.whl
+    sources:
+      - type: file
+        url: https://files.pythonhosted.org/packages/8e/43/d6285848e893c19682c06e92679dc1a07d37ff7ea148747b1df681ec496c/scons-4.11.1-py3-none-any.whl
+        sha256: 454cef364348053422696e3d2ecb4fa593c96a624f955842eaaea64f95c8d11d
+
+  - name: serf
+    buildsystem: simple
+    build-commands:
+      - PYTHONPATH="$(echo /app/build-tools/lib/python3*/site-packages)" python3 /app/build-tools/bin/scons
+        PREFIX=/app APR=/app APU=/app OPENSSL=/usr CFLAGS="$CFLAGS" LINKFLAGS="$LDFLAGS"
+      - PYTHONPATH="$(echo /app/build-tools/lib/python3*/site-packages)" python3 /app/build-tools/bin/scons install
+    sources:
+      - type: archive
+        url: https://archive.apache.org/dist/serf/serf-1.3.10.tar.bz2
+        sha256: be81ef08baa2516ecda76a77adf7def7bc3227eeb578b9a33b45f7b41dc064e6
+
+  - name: subversion
+    config-opts:
+      - --with-apr=/app
+      - --with-apr-util=/app
+      - --with-serf=/app
+      - --with-lz4=internal
+      - --with-utf8proc=internal
+      - --with-gnome-keyring
+      - --without-berkeley-db
+      - --without-apxs
+      - --without-swig
+      - --without-kwallet
+      - --disable-static
+      - --disable-nls
+    sources:
+      - type: archive
+        url: https://archive.apache.org/dist/subversion/subversion-1.14.5.tar.bz2
+        sha256: e78a29e7766b8b7b354497d08f71a55641abc53675ce1875584781aae35644a1
+
+  - name: trunkline
+    buildsystem: simple
+    build-options:
+      append-path: /usr/lib/sdk/golang/bin
+      env:
+        CGO_ENABLED: "1"
+        GOFLAGS: -buildvcs=false -modcacherw
+        GOPATH: /run/build/trunkline/go
+        GOCACHE: /run/build/trunkline/go-cache
+      # Go fetches the modules go.sum lists while building (and checks them).
+      build-args:
+        - --share=network
+    build-commands:
+      - go build -tags desktop,production,webkit2_41 -trimpath
+        -ldflags "-s -w -X trunkline/internal/update.Version=v@VERSION@ -X trunkline/internal/update.Install=flatpak"
+        -o /app/bin/trunkline .
+      - install -Dm644 packaging/linux/trunkline.desktop /app/share/applications/io.github.FrancoCoetzer.TrunkLine.desktop
+      - desktop-file-edit --set-icon=io.github.FrancoCoetzer.TrunkLine --set-key=Exec --set-value=trunkline
+        /app/share/applications/io.github.FrancoCoetzer.TrunkLine.desktop
+      - install -Dm644 packaging/trunkline.svg /app/share/icons/hicolor/scalable/apps/io.github.FrancoCoetzer.TrunkLine.svg
+      - install -Dm644 packaging/flatpak/io.github.FrancoCoetzer.TrunkLine.metainfo.xml /app/share/metainfo/io.github.FrancoCoetzer.TrunkLine.metainfo.xml
+    sources:
+      - type: dir
+        path: ../..
+        skip:
+          - build
+          - .git
