@@ -128,7 +128,8 @@ build_flatpak() {
       exit 1
       ;;
   esac
-  local id=io.github.FrancoCoetzer.TrunkLine work=build/flatpak
+  # build/_flatpak: go ignores folders starting with _ (the build holds Go modules).
+  local id=io.github.FrancoCoetzer.TrunkLine work=build/_flatpak
   mkdir -p "$work"
   # The manifest with the version, and the project's path made absolute.
   sed -e "s|@VERSION@|$v|g" -e "s|path: \.\./\.\.|path: $root|" "packaging/flatpak/$id.yml" > "$work/$id.yml"
