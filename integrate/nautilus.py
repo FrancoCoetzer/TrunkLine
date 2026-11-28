@@ -1,4 +1,5 @@
-# TrunkLine's menu in Nautilus (GNOME Files): right-click > TrunkLine.
+# TrunkLine's menu in __FM__: right-click > TrunkLine.
+# (One file for Nautilus, Nemo and Caja: they share the extension API.)
 #
 # Written by `trunkline integrate` from TrunkLine's list of actions; it is
 # rewritten on the next run, so changes here don't last. `trunkline integrate
@@ -7,20 +8,25 @@
 #
 # Menus are built on every right-click, so this never runs svn: whether a path
 # is in a working copy comes from looking for a .svn folder above it.
-# Also loads in the older API (Nautilus < 43: methods take the window first).
+# Also loads in the older API (Nautilus < 43, Nemo, Caja: methods take the
+# window first).
 
+import importlib
 import json
 import os
 
 import gi
 
-for _version in ("4.1", "4.0", "3.0"):
+FILE_MANAGER = "__FM__"
+for _version in {"Nautilus": ("4.1", "4.0", "3.0"), "Nemo": ("3.0",), "Caja": ("2.0",)}[FILE_MANAGER]:
     try:
-        gi.require_version("Nautilus", _version)
+        gi.require_version(FILE_MANAGER, _version)
         break
     except ValueError:
         pass
-from gi.repository import GLib, GObject, Nautilus  # noqa: E402
+from gi.repository import GLib, GObject  # noqa: E402
+
+FM = importlib.import_module("gi.repository." + FILE_MANAGER)
 
 COMMAND = json.loads(r'''__COMMAND__''')
 ACTIONS = json.loads(r'''__ACTIONS__''')
@@ -55,14 +61,14 @@ def menu(paths, kinds):
     items = []
     for a in ACTIONS:
         if a["wc"] == wc and all(k in a["on"] for k in kinds):
-            item = Nautilus.MenuItem(name="TrunkLine::" + a["action"] + ("" if wc else "-outside"),
+            item = FM.MenuItem(name="TrunkLine::" + a["action"] + ("" if wc else "-outside"),
                                      label=a["label"], icon=a["icon"])
             item.connect("activate", lambda _item, act=a["action"]: launch(act, paths))
             items.append(item)
     if not items:
         return []
-    top = Nautilus.MenuItem(name="TrunkLine::menu", label="TrunkLine", icon="trunkline")
-    sub = Nautilus.Menu()
+    top = FM.MenuItem(name="TrunkLine::menu", label="TrunkLine", icon="trunkline")
+    sub = FM.Menu()
     top.set_submenu(sub)
     for item in items:
         sub.append_item(item)
@@ -74,14 +80,21 @@ def local_path(f):
     return loc.get_path() if loc is not None else None
 
 
-class TrunkLineMenu(GObject.GObject, Nautilus.MenuProvider):
+# Nemo lists extensions by name in its plugin settings.
+_named = (FM.NameAndDescProvider,) if hasattr(FM, "NameAndDescProvider") else ()
+
+
+class TrunkLineMenu(GObject.GObject, FM.MenuProvider, *_named):
+    def get_name_and_desc(self):
+        return ["TrunkLine:::Commit, update, log and more from the right-click menu"]
+
     def get_file_items(self, *args):
-        files = args[-1]  # (files), or (window, files) before Nautilus 43
+        files = args[-1]  # (files), or (window, files): Nautilus < 43, Nemo, Caja
         paths = [local_path(f) for f in files]
         if not paths or None in paths:
             return []  # nothing picked, or a file not on this computer
         return menu(paths, ["folder" if f.is_directory() else "file" for f in files])
 
     def get_background_items(self, *args):
-        path = local_path(args[-1])  # (folder), or (window, folder) before Nautilus 43
+        path = local_path(args[-1])  # (folder), or (window, folder)
         return menu([path], ["background"]) if path else []

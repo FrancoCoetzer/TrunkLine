@@ -213,6 +213,9 @@ Supported so far:
 - **Nautilus** (GNOME Files), which needs its Python support (`sudo apt
   install python3-nautilus`, Fedora: `nautilus-python`). Restart it
   afterwards with `nautilus -q`.
+- **Nemo** (Cinnamon, Linux Mint) and **Caja** (MATE), the same way: they
+  need `nemo-python` or `python3-caja` (Fedora: `nemo-python`,
+  `caja-python`); restart with `nemo -q` or `caja -q`.
 - **Dolphin** and Konqueror (KDE). Dolphin can't tell whether a file is in a
   working copy, so the menu shows the same items everywhere; outside a
   working copy they offer a checkout or an import. For svn status icons on

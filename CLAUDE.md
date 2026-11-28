@@ -91,8 +91,9 @@ rebuild after editing `frontend/dist`.
   only check). A new action needs a `cliActions` entry too (a test checks).
   Dolphin gets two KIO service menus (files, folders), executable for KF6,
   with `Exec` quoted by `execArg`.
-  The Nautilus extension is `integrate/nautilus.py`, tested against a stand-in
-  for its Python API (`integrate_test.go`). Integrate only replaces or
+  The Python extension `integrate/nautilus.py` serves Nautilus, Nemo and Caja
+  (`__FM__` picks the API); it is tested against a stand-in for that API
+  (`integrate_test.go`). Integrate only replaces or
   removes files that carry its `writtenBy` mark.
 
 - **Updates** (`internal/update`): releases come from GitHub (`update.Repo`).

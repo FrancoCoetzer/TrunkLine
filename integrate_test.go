@@ -36,7 +36,12 @@ class Menu:
 ran = []
 class SpawnFlags: SEARCH_PATH = 1
 repo.GObject = types.SimpleNamespace(GObject=GObject)
-repo.Nautilus = types.SimpleNamespace(MenuProvider=object, MenuItem=MenuItem, Menu=Menu)
+for fm in ("Nautilus", "Nemo", "Caja"):
+    api = types.SimpleNamespace(MenuProvider=type("MenuProvider", (), {}), MenuItem=MenuItem, Menu=Menu)
+    if fm == "Nemo":
+        api.NameAndDescProvider = type("NameAndDescProvider", (), {})
+    setattr(repo, fm, api)
+    sys.modules["gi.repository." + fm] = api
 repo.GLib = types.SimpleNamespace(spawn_async=lambda argv, flags=0: ran.append(argv), SpawnFlags=SpawnFlags)
 gi.repository = repo
 sys.modules.update({"gi": gi, "gi.repository": repo})
@@ -71,10 +76,18 @@ out = {
 items = m.get_file_items([F(wc + "/src/main.c", False), F(wc + "/-odd.c", False)])
 next(i for i in items[0].submenu.items if i.label == "Commit…").handler(None)
 out["ran"] = __import__("fakegi").ran
+out["named"] = hasattr(m, "get_name_and_desc") and any(b.__name__ == "NameAndDescProvider" for b in type(m).__mro__)
 print(json.dumps(out))
 `
 
-func TestNautilusExtension(t *testing.T) {
+// The same extension serves Nautilus, Nemo and Caja.
+func TestPythonExtension(t *testing.T) {
+	for _, fm := range []string{"Nautilus", "Nemo", "Caja"} {
+		t.Run(fm, func(t *testing.T) { testPythonExtension(t, fm) })
+	}
+}
+
+func testPythonExtension(t *testing.T, fm string) {
 	py, err := exec.LookPath("python3")
 	if err != nil || runtime.GOOS == "windows" {
 		t.Skip("needs python3 (Linux)")
@@ -92,7 +105,7 @@ func TestNautilusExtension(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	write("trunkline.py", string(nautilusExtension([]string{"/opt/trunk line/trunkline"})))
+	write("trunkline.py", string(nautilusExtension(fm, []string{"/opt/trunk line/trunkline"})))
 	write("fakegi.py", fakeGI)
 	write("run.py", "import fakegi\n"+exerciseMenu)
 	out, err := exec.Command(py, filepath.Join(dir, "run.py"), ext, wc, plain).CombinedOutput()
@@ -130,6 +143,9 @@ func TestNautilusExtension(t *testing.T) {
 	want, _ := json.Marshal([][]string{{"/opt/trunk line/trunkline", "commit", "--", wc + "/src/main.c", wc + "/-odd.c"}})
 	if string(ran) != string(want) {
 		t.Errorf("ran %s, want %s", ran, want)
+	}
+	if named, _ := got["named"].(bool); named != (fm == "Nemo") {
+		t.Errorf("listed by name in the plugin settings: %v", named)
 	}
 }
 
@@ -222,7 +238,7 @@ func TestIntegrateDolphin(t *testing.T) {
 	t.Setenv("XDG_DATA_HOME", t.TempDir())
 	saved := integrations
 	t.Cleanup(func() { integrations = saved })
-	integrations = []integration{saved[1]}
+	integrations = []integration{byName(t, saved, "Dolphin (KDE)")}
 	integrations[0].present = func() bool { return true }
 	var out strings.Builder
 	if code := runIntegrate(nil, &out); code != 0 {
@@ -237,5 +253,34 @@ func TestIntegrateDolphin(t *testing.T) {
 	out.Reset()
 	if code := runIntegrate([]string{"--remove"}, &out); code != 0 || strings.Count(out.String(), ".desktop") != 2 {
 		t.Errorf("remove: exit %d: %s", code, out.String())
+	}
+}
+
+func byName(t *testing.T, list []integration, name string) integration {
+	for _, in := range list {
+		if in.name == name {
+			return in
+		}
+	}
+	t.Fatalf("no integration %q", name)
+	return integration{}
+}
+
+func TestIntegratePaths(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", "/data")
+	for name, want := range map[string]string{
+		"Nautilus (GNOME Files)": "/data/nautilus-python/extensions/trunkline.py",
+		"Nemo (Cinnamon)":        "/data/nemo-python/extensions/trunkline.py",
+		"Caja (MATE)":            "/data/caja-python/extensions/trunkline.py",
+	} {
+		f := byName(t, integrations, name).files([]string{"trunkline"})
+		if len(f) != 1 || f[0].path != want {
+			t.Errorf("%s: %+v", name, f)
+			continue
+		}
+		fm := strings.Fields(name)[0]
+		if !strings.Contains(string(f[0].content), `FILE_MANAGER = "`+fm+`"`) {
+			t.Errorf("%s: not made for %s", name, fm)
+		}
 	}
 }

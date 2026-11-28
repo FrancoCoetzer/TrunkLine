@@ -78,31 +78,26 @@ type menuFile struct {
 var integrations = []integration{
 	{
 		name:    "Nautilus (GNOME Files)",
-		present: func() bool { _, err := exec.LookPath("nautilus"); return err == nil },
-		files: func(command []string) []menuFile {
-			p := filepath.Join(dataHome(), "nautilus-python", "extensions", "trunkline.py")
-			return []menuFile{{p, nautilusExtension(command), 0o644}}
-		},
-		note: func(removed bool) string {
-			s := "Restart Nautilus to see the change: nautilus -q"
-			if !removed && !nautilusPython() {
-				s = "The menu needs Nautilus's Python support: sudo apt install python3-nautilus\n" +
-					"(Fedora: sudo dnf install nautilus-python), then: nautilus -q"
-			}
-			return s
-		},
+		present: installed("nautilus"),
+		files:   pythonExtension("Nautilus", "nautilus-python"),
+		note:    pythonNote("Nautilus", "nautilus", "python3-nautilus", "nautilus-python"),
 	},
 	{
-		name: "Dolphin (KDE)",
-		present: func() bool {
-			for _, fm := range []string{"dolphin", "konqueror"} {
-				if _, err := exec.LookPath(fm); err == nil {
-					return true
-				}
-			}
-			return false
-		},
-		files: dolphinMenus,
+		name:    "Nemo (Cinnamon)",
+		present: installed("nemo"),
+		files:   pythonExtension("Nemo", "nemo-python"),
+		note:    pythonNote("Nemo", "nemo", "nemo-python", "nemo-python"),
+	},
+	{
+		name:    "Caja (MATE)",
+		present: installed("caja"),
+		files:   pythonExtension("Caja", "caja-python"),
+		note:    pythonNote("Caja", "caja", "python3-caja", "caja-python"),
+	},
+	{
+		name:    "Dolphin (KDE)",
+		present: installed("dolphin", "konqueror"),
+		files:   dolphinMenus,
 		note: func(bool) string {
 			return "Dolphin reads it the next time it opens a menu (or reopen its window)."
 		},
@@ -118,9 +113,43 @@ func dataHome() string {
 	return filepath.Join(home, ".local", "share")
 }
 
-// nautilusPython tells whether nautilus-python, which loads Python extensions, is installed.
-func nautilusPython() bool {
-	for _, g := range []string{"/usr/lib/*/nautilus/extensions-4/libnautilus-python.so", "/usr/lib*/nautilus/extensions-4/libnautilus-python.so"} {
+// installed returns whether any of these programs is on PATH.
+func installed(programs ...string) func() bool {
+	return func() bool {
+		for _, p := range programs {
+			if _, err := exec.LookPath(p); err == nil {
+				return true
+			}
+		}
+		return false
+	}
+}
+
+// pythonExtension is the menu as a Python extension of fm (Nautilus, Nemo or
+// Caja), in dir (nautilus-python, ...) under the user's data folder.
+func pythonExtension(fm, dir string) func([]string) []menuFile {
+	return func(command []string) []menuFile {
+		p := filepath.Join(dataHome(), dir, "extensions", "trunkline.py")
+		return []menuFile{{p, nautilusExtension(fm, command), 0o644}}
+	}
+}
+
+// pythonNote says to restart the file manager (program), and how to install
+// its Python support (dir: the library's folder, e.g. nemo-python) if missing.
+func pythonNote(fm, program, debPackage, dir string) func(bool) string {
+	return func(removed bool) string {
+		if !removed && !hasPythonSupport(program, dir) {
+			return fmt.Sprintf("The menu needs %s's Python support: sudo apt install %s\n"+
+				"(Fedora: sudo dnf install %s), then: %s -q", fm, debPackage, dir, program)
+		}
+		return fmt.Sprintf("Restart %s to see the change: %s -q", fm, program)
+	}
+}
+
+// hasPythonSupport tells whether the library that loads a file manager's
+// Python extensions (libnautilus-python.so, ...) is installed.
+func hasPythonSupport(program, dir string) bool {
+	for _, g := range []string{"/usr/lib/*/" + program + "/extensions-*/lib" + dir + ".so", "/usr/lib*/" + program + "/extensions-*/lib" + dir + ".so"} {
 		if m, _ := filepath.Glob(g); len(m) > 0 {
 			return true
 		}
@@ -147,12 +176,11 @@ func menuCommand() []string {
 	return []string{exe}
 }
 
-// nautilusExtension is the Python extension for Nautilus (and, later, Nemo and Caja).
-func nautilusExtension(command []string) []byte {
+// nautilusExtension is the Python extension for fm: Nautilus, Nemo or Caja.
+func nautilusExtension(fm string, command []string) []byte {
 	cmd, _ := json.Marshal(command)
 	acts, _ := json.Marshal(menuActions)
-	s := strings.Replace(nautilusTemplate, "__COMMAND__", string(cmd), 1)
-	return []byte(strings.Replace(s, "__ACTIONS__", string(acts), 1))
+	return []byte(strings.NewReplacer("__FM__", fm, "__COMMAND__", string(cmd), "__ACTIONS__", string(acts)).Replace(nautilusTemplate))
 }
 
 // runIntegrate is `trunkline integrate [--remove]`: it writes (or removes) the
@@ -214,7 +242,7 @@ func runIntegrate(args []string, out io.Writer) int {
 		if remove {
 			fmt.Fprintln(out, "No TrunkLine menus to remove.")
 		} else {
-			fmt.Fprintln(out, "No file manager TrunkLine can add a menu to was found. Supported so far: Nautilus, Dolphin.")
+			fmt.Fprintln(out, "No file manager TrunkLine can add a menu to was found. Supported so far: Nautilus, Nemo, Caja, Dolphin.")
 		}
 	}
 	return code
