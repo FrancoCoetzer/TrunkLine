@@ -195,6 +195,27 @@ working copy:
 - **Clean up** (⋯) if an operation was interrupted and svn says the working
   copy is locked.
 
+## From your file manager
+
+On Linux, TrunkLine can add a **TrunkLine** submenu to the file manager's
+right-click menu: Commit, Update, Show log, Diff, Blame, Add, Revert, Lock
+and Release lock, each opening TrunkLine at that task (as the commands
+below do). Outside a working copy, a folder gets **Check out or import…**.
+Set it up once, for your user:
+
+```sh
+trunkline integrate          # adds the menu to the file managers it finds
+trunkline integrate --remove # takes it out again
+```
+
+Supported so far: **Nautilus** (GNOME Files), which needs its Python
+support (`sudo apt install python3-nautilus`, Fedora: `nautilus-python`).
+Restart it afterwards with `nautilus -q`. Run `trunkline integrate` again
+after moving TrunkLine: the menu runs the program from where it was then.
+
+Every file manager also has **Open With → TrunkLine** on folders, with no
+setup, and you can drag a folder onto TrunkLine's window.
+
 ## From the terminal
 
 `trunkline <action> <paths>` opens TrunkLine at that task, in the working

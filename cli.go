@@ -111,6 +111,7 @@ func cliHelp() string {
 		fmt.Fprintf(&b, "  %-8s %s\n", c.name, c.help)
 	}
 	b.WriteString("\nIf TrunkLine is already running, its window opens the action.\n\n")
+	b.WriteString("  trunkline integrate [--remove]  add a TrunkLine menu to your file manager\n\n")
 	b.WriteString("Options:\n  -h, --help     this help\n  -v, --version  the version\n")
 	return b.String()
 }

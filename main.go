@@ -23,6 +23,9 @@ import (
 var assets embed.FS
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "integrate" {
+		os.Exit(runIntegrate(os.Args[2:], os.Stdout))
+	}
 	req, err := parseArgs(os.Args[1:])
 	switch {
 	case errors.Is(err, errHelp):
