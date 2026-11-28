@@ -23,6 +23,8 @@ one section per task. Press **F1** in the app for every keyboard shortcut.
   - [Properties and externals](#properties-and-externals)
   - [Working with the repository directly](#working-with-the-repository-directly)
   - [Big repositories](#big-repositories)
+- [From your file manager](#from-your-file-manager)
+- [From a terminal file manager](#from-a-terminal-file-manager)
 - [From the terminal](#from-the-terminal)
 - [Keyboard](#keyboard)
 - [Coming from TortoiseSVN](#coming-from-tortoisesvn)
@@ -243,6 +245,91 @@ it works or not: [open an issue](https://github.com/FrancoCoetzer/TrunkLine/issu
 
 Every file manager also has **Open With → TrunkLine** on folders, with no
 setup, and you can drag a folder onto TrunkLine's window.
+
+## From a terminal file manager
+
+ranger, lf, nnn and yazi have no menus to add to, but a few lines in their
+config give the same actions on keys. Each snippet uses the same keys:
+**T** (in nnn: **;**) then **c** commit, **l** show log, **d** diff, **b**
+blame, on the selected files or the highlighted one; **u** update and **o**
+open, on the folder you're in. Flatpak and snap users: put `flatpak run
+io.github.FrancoCoetzer.TrunkLine` or `snap run trunkline` where it says
+`trunkline`.
+
+**ranger** (`~/.config/ranger/rc.conf`):
+
+```
+map Tc shell -f trunkline commit -- %s
+map Tl shell -f trunkline log -- %s
+map Td shell -f trunkline diff -- %s
+map Tb shell -f trunkline blame -- %s
+map Tu shell -f trunkline update -- %d
+map To shell -f trunkline open -- %d
+```
+
+**lf** (`~/.config/lf/lfrc`):
+
+```
+cmd trunkline-on-files &{{
+    set -f
+    IFS='
+'
+    trunkline "$1" -- $fx
+}}
+map Tc trunkline-on-files commit
+map Tl trunkline-on-files log
+map Td trunkline-on-files diff
+map Tb trunkline-on-files blame
+map Tu &trunkline update -- "$PWD"
+map To &trunkline open -- "$PWD"
+```
+
+**nnn** (in your shell's startup file, e.g. `~/.bashrc`; add these to any
+`NNN_PLUG` you already have, separated by `;`, and change a key if it's
+taken):
+
+```sh
+export NNN_PLUG='c:-!&trunkline commit -- "$nnn";l:-!&trunkline log -- "$nnn";d:-!&trunkline diff -- "$nnn";b:-!&trunkline blame -- "$nnn";u:-!&trunkline update -- "$PWD";o:-!&trunkline open -- "$PWD"'
+```
+
+**yazi** (`~/.config/yazi/keymap.toml`; versions before 25.5 call the
+section `manager` instead of `mgr`):
+
+```toml
+[[mgr.prepend_keymap]]
+on   = ["T", "c"]
+run  = 'shell --orphan -- trunkline commit -- "$@"'
+desc = "TrunkLine: commit"
+
+[[mgr.prepend_keymap]]
+on   = ["T", "l"]
+run  = 'shell --orphan -- trunkline log -- "$@"'
+desc = "TrunkLine: log"
+
+[[mgr.prepend_keymap]]
+on   = ["T", "d"]
+run  = 'shell --orphan -- trunkline diff -- "$@"'
+desc = "TrunkLine: diff"
+
+[[mgr.prepend_keymap]]
+on   = ["T", "b"]
+run  = 'shell --orphan -- trunkline blame -- "$@"'
+desc = "TrunkLine: blame"
+
+[[mgr.prepend_keymap]]
+on   = ["T", "u"]
+run  = 'shell --orphan -- trunkline update -- "$PWD"'
+desc = "TrunkLine: update"
+
+[[mgr.prepend_keymap]]
+on   = ["T", "o"]
+run  = 'shell --orphan -- trunkline open -- "$PWD"'
+desc = "TrunkLine: open"
+```
+
+The ranger, lf and nnn snippets were tried in ranger 1.9.4, lf 38 and nnn 5.1;
+the yazi one hasn't been tried yet. If it works for you, or doesn't, please
+[open an issue](https://github.com/FrancoCoetzer/TrunkLine/issues).
 
 ## From the terminal
 
