@@ -216,6 +216,10 @@ Supported so far:
 - **Nemo** (Cinnamon, Linux Mint) and **Caja** (MATE), the same way: they
   need `nemo-python` or `python3-caja` (Fedora: `nemo-python`,
   `caja-python`); restart with `nemo -q` or `caja -q`.
+- **Thunar** (XFCE). TrunkLine adds its items to Thunar's custom actions
+  (`~/.config/Thunar/uca.xml`), next to your own, which it leaves as they
+  are; `--remove` takes only TrunkLine's out. Like Dolphin, it shows the
+  same items everywhere. Restart Thunar with `thunar -q`.
 - **Dolphin** and Konqueror (KDE). Dolphin can't tell whether a file is in a
   working copy, so the menu shows the same items everywhere; outside a
   working copy they offer a checkout or an import. For svn status icons on

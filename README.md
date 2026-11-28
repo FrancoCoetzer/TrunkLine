@@ -121,7 +121,7 @@ work first, then everything else.
 - **From the file manager**: "Open With TrunkLine" on a folder (any Linux file
   manager), or drag a folder onto the window, opens that working copy.
   `trunkline integrate` adds a TrunkLine right-click menu (Commit, Update,
-  Show log, Blame, Lock, …) to Nautilus, Nemo, Caja and Dolphin; more file managers are coming.
+  Show log, Blame, Lock, …) to Nautilus, Nemo, Caja, Thunar and Dolphin; more file managers are coming.
 - **Menus** along the top: File (add a working copy or repository,
   Preferences, Quit), View (tabs, unversioned files, theme, zoom) and Help
   (keyboard shortcuts, updates, reporting a problem, About). Alt+F, Alt+V and

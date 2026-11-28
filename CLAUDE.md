@@ -90,7 +90,10 @@ rebuild after editing `frontend/dist`.
   and building a menu never runs svn (a `.svn` folder above the path is the
   only check). A new action needs a `cliActions` entry too (a test checks).
   Dolphin gets two KIO service menus (files, folders), executable for KF6,
-  with `Exec` quoted by `execArg`.
+  with `Exec` quoted by `execArg`. Thunar's `uca.xml` is the user's own
+  file: `mergeUCA` only adds or removes the actions whose `unique-id` starts
+  with `trunkline-` and keeps everything else byte for byte; a new file
+  starts from the system copy (Thunar reads one or the other, not both).
   The Python extension `integrate/nautilus.py` serves Nautilus, Nemo and Caja
   (`__FM__` picks the API); it is tested against a stand-in for that API
   (`integrate_test.go`). Integrate only replaces or

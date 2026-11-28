@@ -7,6 +7,7 @@ package main
 import (
 	_ "embed"
 	"encoding/json"
+	"encoding/xml"
 	"errors"
 	"fmt"
 	"io"
@@ -69,11 +70,15 @@ type integration struct {
 	note    func(removed bool) string         // what else to do, if anything
 }
 
-// menuFile is one file a menu needs.
+// menuFile is one file a menu needs: ours alone (content), or one shared
+// with the user, where merge adds our part (add) or takes it out (!add) and
+// leaves the rest as it was.
 type menuFile struct {
 	path    string
 	content []byte
 	mode    fs.FileMode
+	merge   func(old []byte, add bool) ([]byte, error)
+	start   func() []byte // a shared file's contents when the user has none yet
 }
 
 var integrations = []integration{
@@ -94,6 +99,14 @@ var integrations = []integration{
 		present: installed("caja"),
 		files:   pythonExtension("Caja", "caja-python"),
 		note:    pythonNote("Caja", "caja", "python3-caja", "caja-python"),
+	},
+	{
+		name:    "Thunar (XFCE)",
+		present: installed("thunar"),
+		files:   thunarMenu,
+		note: func(bool) string {
+			return "Thunar reads it when it starts: thunar -q, then open Thunar again."
+		},
 	},
 	{
 		name:    "Dolphin (KDE)",
@@ -131,7 +144,7 @@ func installed(programs ...string) func() bool {
 func pythonExtension(fm, dir string) func([]string) []menuFile {
 	return func(command []string) []menuFile {
 		p := filepath.Join(dataHome(), dir, "extensions", "trunkline.py")
-		return []menuFile{{p, nautilusExtension(fm, command), 0o644}}
+		return []menuFile{{path: p, content: nautilusExtension(fm, command), mode: 0o644}}
 	}
 }
 
@@ -245,7 +258,7 @@ func runIntegrate(args []string, out io.Writer) int {
 		} else {
 			switch runtime.GOOS {
 			case "linux":
-				fmt.Fprintln(out, "No file manager TrunkLine can add a menu to was found. Supported so far: Nautilus, Nemo, Caja, Dolphin.")
+				fmt.Fprintln(out, "No file manager TrunkLine can add a menu to was found. Supported so far: Nautilus, Nemo, Caja, Thunar, Dolphin.")
 			case "windows":
 				fmt.Fprintln(out, "File manager menus are only on Linux so far; a TrunkLine menu in Windows Explorer is planned.")
 			default:
@@ -267,6 +280,9 @@ func integrateOne(f menuFile, remove bool) (done bool, err error) {
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return false, err
 	}
+	if f.merge != nil {
+		return mergeOne(f, old, exists, remove)
+	}
 	if exists && !strings.Contains(string(old), writtenBy) {
 		return false, fmt.Errorf("%s is not one TrunkLine wrote; leaving it alone", path)
 	}
@@ -285,6 +301,172 @@ func integrateOne(f menuFile, remove bool) (done bool, err error) {
 	return true, os.Chmod(path, f.mode) // WriteFile only sets it on a new file
 }
 
+// mergeOne adds our part to a file shared with the user, or takes it out.
+func mergeOne(f menuFile, old []byte, exists, remove bool) (bool, error) {
+	if remove && !exists {
+		return false, nil
+	}
+	if !exists && f.start != nil {
+		old = f.start()
+	}
+	next, err := f.merge(old, !remove)
+	if err != nil {
+		return false, fmt.Errorf("%s: %v; leaving it alone", f.path, err)
+	}
+	if exists && string(next) == string(old) {
+		return !remove, nil // already as it should be
+	}
+	if err := os.MkdirAll(filepath.Dir(f.path), 0o755); err != nil {
+		return false, err
+	}
+	return true, os.WriteFile(f.path, next, f.mode)
+}
+
+// configHome is $XDG_CONFIG_HOME, or ~/.config.
+func configHome() string {
+	if d := os.Getenv("XDG_CONFIG_HOME"); filepath.IsAbs(d) {
+		return d
+	}
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, ".config")
+}
+
+// systemConfig is the first copy of name in $XDG_CONFIG_DIRS (or /etc/xdg).
+func systemConfig(name string) []byte {
+	dirs := os.Getenv("XDG_CONFIG_DIRS")
+	if dirs == "" {
+		dirs = "/etc/xdg"
+	}
+	for _, d := range filepath.SplitList(dirs) {
+		if b, err := os.ReadFile(filepath.Join(d, name)); err == nil {
+			return b
+		}
+	}
+	return nil
+}
+
+// thunarMenu is Thunar's: custom actions in uca.xml, a file the user also
+// edits (Edit > Configure custom actions) and Thunar rewrites. Ours are the
+// actions whose unique-id starts with "trunkline-"; everything else stays as
+// it was. Thunar reads the user's uca.xml instead of the system one, so a new
+// file starts as a copy of the system one (its "Open Terminal Here"). Like
+// Dolphin's, the actions can't check for a working copy.
+func thunarMenu(command []string) []menuFile {
+	return []menuFile{{
+		path:  filepath.Join(configHome(), "Thunar", "uca.xml"),
+		mode:  0o644,
+		start: func() []byte { return systemConfig(filepath.Join("Thunar", "uca.xml")) },
+		merge: func(old []byte, add bool) ([]byte, error) {
+			ours := ""
+			if add {
+				ours = thunarActions(command)
+			}
+			return mergeUCA(old, ours)
+		},
+	}}
+}
+
+const thunarID = "<unique-id>trunkline-"
+
+// thunarActions are our uca.xml <action> elements, in Thunar's own layout.
+func thunarActions(command []string) string {
+	var cmd []string
+	for _, c := range command {
+		cmd = append(cmd, shellQuote(c))
+	}
+	// Only what XML text needs, so the file stays readable when edited by hand.
+	esc := strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;").Replace
+	help := map[string]string{}
+	for _, c := range cliActions {
+		help[c.name] = c.help
+	}
+	var b strings.Builder
+	for _, a := range menuActions {
+		if !a.WC {
+			continue // an action can't check; outside a working copy "open" offers checkout or import
+		}
+		fmt.Fprintf(&b, "\t<action>\n\t\t<icon>%s</icon>\n\t\t<name>%s</name>\n\t\t<submenu>TrunkLine</submenu>\n"+
+			"\t\t<unique-id>trunkline-%s</unique-id>\n\t\t<command>%s</command>\n\t\t<description>TrunkLine: %s</description>\n"+
+			"\t\t<range></range>\n\t\t<patterns>*</patterns>\n",
+			esc(a.Icon), esc(a.Label), a.Action, esc(strings.Join(cmd, " ")+" "+a.Action+" -- %F"), esc(help[a.Action]))
+		if slices.Contains(a.On, "folder") || slices.Contains(a.On, "background") {
+			b.WriteString("\t\t<directories/>\n")
+		}
+		if slices.Contains(a.On, "file") {
+			b.WriteString("\t\t<audio-files/>\n\t\t<image-files/>\n\t\t<other-files/>\n\t\t<text-files/>\n\t\t<video-files/>\n")
+		}
+		b.WriteString("\t</action>\n")
+	}
+	return b.String()
+}
+
+// mergeUCA takes our actions out of a uca.xml and, if ours isn't empty, adds
+// them at the end. Everything else is kept byte for byte.
+func mergeUCA(old []byte, ours string) ([]byte, error) {
+	s := string(old)
+	if strings.TrimSpace(s) == "" {
+		s = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<actions>\n</actions>\n"
+	}
+	s = strings.Replace(s, "<actions/>", "<actions>\n</actions>", 1)
+	// Take ours out: each <action>...</action> with our unique-id, with the
+	// indent before it and the line end after it.
+	var out strings.Builder
+	for {
+		i := strings.Index(s, "<action>")
+		if i < 0 {
+			out.WriteString(s)
+			break
+		}
+		j := strings.Index(s[i:], "</action>")
+		if j < 0 {
+			return nil, errors.New("an <action> is not closed")
+		}
+		end := i + j + len("</action>")
+		if !strings.Contains(s[i:end], thunarID) {
+			out.WriteString(s[:end])
+			s = s[end:]
+			continue
+		}
+		start := i
+		for start > 0 && (s[start-1] == ' ' || s[start-1] == '\t') {
+			start--
+		}
+		if strings.HasPrefix(s[end:], "\n") {
+			end++
+		}
+		out.WriteString(s[:start])
+		s = s[end:]
+	}
+	s = out.String()
+	if ours != "" {
+		k := strings.LastIndex(s, "</actions>")
+		if k < 0 {
+			return nil, errors.New("no <actions> element: not a Thunar custom actions file")
+		}
+		s = s[:k] + ours + s[k:]
+	}
+	// Still well-formed XML?
+	d := xml.NewDecoder(strings.NewReader(s))
+	d.Strict = true
+	for {
+		if _, err := d.Token(); err == io.EOF {
+			break
+		} else if err != nil {
+			return nil, fmt.Errorf("would not be valid XML (%v)", err)
+		}
+	}
+	return []byte(s), nil
+}
+
+// shellQuote quotes one argument the way g_shell_parse_argv (which Thunar
+// runs a command through) reads it.
+func shellQuote(s string) string {
+	if s != "" && !strings.ContainsAny(s, " \t\n'\"\\$`*?[]#~=%&;|<>(){}!") {
+		return s
+	}
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
+}
+
 // dolphinMenus are Dolphin's service menus (KIO, KDE Frameworks 5.85 and
 // later; KF6 only loads a user's own if it is executable). A service menu
 // can't tell whether a path is in a working copy, so it lists the
@@ -294,8 +476,8 @@ func integrateOne(f menuFile, remove bool) (done bool, err error) {
 func dolphinMenus(command []string) []menuFile {
 	dir := filepath.Join(dataHome(), "kio", "servicemenus")
 	return []menuFile{
-		{filepath.Join(dir, "trunkline-files.desktop"), dolphinMenu(command, "file", "all/allfiles;"), 0o755},
-		{filepath.Join(dir, "trunkline-folders.desktop"), dolphinMenu(command, "folder", "inode/directory;"), 0o755},
+		{path: filepath.Join(dir, "trunkline-files.desktop"), content: dolphinMenu(command, "file", "all/allfiles;"), mode: 0o755},
+		{path: filepath.Join(dir, "trunkline-folders.desktop"), content: dolphinMenu(command, "folder", "inode/directory;"), mode: 0o755},
 	}
 }
 
