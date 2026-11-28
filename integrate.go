@@ -109,6 +109,22 @@ var integrations = []integration{
 		},
 	},
 	{
+		name:    "PCManFM-Qt / PCManFM (LXQt, LXDE)",
+		present: installed("pcmanfm-qt", "pcmanfm"),
+		files:   fileManagerActions,
+		note: func(bool) string {
+			return "PCManFM-Qt reads it when it starts: close its windows and open it again."
+		},
+	},
+	{
+		name:    "elementary Files",
+		present: installed("io.elementary.files"),
+		files:   contracts,
+		note: func(bool) string {
+			return "Files shows them the next time it opens a menu."
+		},
+	},
+	{
 		name:    "Dolphin (KDE)",
 		present: installed("dolphin", "konqueror"),
 		files:   dolphinMenus,
@@ -258,7 +274,7 @@ func runIntegrate(args []string, out io.Writer) int {
 		} else {
 			switch runtime.GOOS {
 			case "linux":
-				fmt.Fprintln(out, "No file manager TrunkLine can add a menu to was found. Supported so far: Nautilus, Nemo, Caja, Thunar, Dolphin.")
+				fmt.Fprintln(out, "No file manager TrunkLine can add a menu to was found. Supported so far: Nautilus, Nemo, Caja, Thunar, Dolphin, PCManFM-Qt, elementary Files.")
 			case "windows":
 				fmt.Fprintln(out, "File manager menus are only on Linux so far; a TrunkLine menu in Windows Explorer is planned.")
 			default:
@@ -465,6 +481,99 @@ func shellQuote(s string) string {
 		return s
 	}
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
+}
+
+// keyfileExec is an Exec value run through g_shell_parse_argv after the
+// file manager's own field codes (%F), as libfm-qt does: shell quoting, % doubled,
+// and the key file's own \\ escape.
+func keyfileExec(command []string, action string) string {
+	var cmd []string
+	for _, c := range command {
+		cmd = append(cmd, strings.ReplaceAll(strings.ReplaceAll(shellQuote(c), "%", "%%"), `\`, `\\`))
+	}
+	return strings.Join(cmd, " ") + " " + action + " -- %F"
+}
+
+// fileManagerActions are file-manager actions (the freedesktop DES-EMA spec)
+// for PCManFM-Qt and PCManFM: one .desktop file per action, and a menu file
+// that puts them in a TrunkLine submenu. TargetLocation puts the folder ones
+// on the empty space inside a folder too. Like Dolphin's, they can't check for
+// a working copy.
+func fileManagerActions(command []string) []menuFile {
+	dir := filepath.Join(dataHome(), "file-manager", "actions")
+	var files []menuFile
+	var ids []string
+	for _, a := range menuActions {
+		if !a.WC {
+			continue
+		}
+		id := "trunkline-" + a.Action
+		ids = append(ids, id)
+		forFiles := slices.Contains(a.On, "file")
+		forFolders := slices.Contains(a.On, "folder") || slices.Contains(a.On, "background")
+		mime := "all/all;"
+		switch {
+		case !forFolders:
+			mime = "all/allfiles;"
+		case !forFiles:
+			mime = "inode/directory;"
+		}
+		var b strings.Builder
+		fmt.Fprintf(&b, "# %s from TrunkLine's list of actions; rewritten on the next run.\n"+
+			"[Desktop Entry]\nType=Action\nName=%s\nIcon=%s\nTooltip=TrunkLine: %s\nProfiles=main;\n"+
+			"TargetContext=true\nTargetLocation=%t\n\n[X-Action-Profile main]\nMimeTypes=%s\nSchemes=file;\nExec=%s\n",
+			writtenBy, a.Label, a.Icon, a.Label, forFolders, mime, keyfileExec(command, a.Action))
+		files = append(files, menuFile{path: filepath.Join(dir, id+".desktop"), content: []byte(b.String()), mode: 0o644})
+	}
+	menu := fmt.Sprintf("# %s from TrunkLine's list of actions; rewritten on the next run.\n"+
+		"[Desktop Entry]\nType=Menu\nName=TrunkLine\nIcon=trunkline\nItemsList=%s;\nTargetContext=true\nTargetLocation=true\n",
+		writtenBy, strings.Join(ids, ";"))
+	return append(files, menuFile{path: filepath.Join(dir, "trunkline.desktop"), content: []byte(menu), mode: 0o644})
+}
+
+// contractActions are the ones elementary Files gets: it shows contracts as
+// plain items, not in a submenu, so only the everyday ones, to keep its menu short.
+var contractActions = []string{"commit", "update", "log", "open"}
+
+// contracts are Contractor's .contract files, elementary Files' menu items.
+// (GLib, which launches them, checks the program exists before it reads %%
+// as %, so an install path with a % in it won't work here.)
+// Contractor matches MimeType by prefix, "!" meaning "not": inode/directory
+// is a folder, !inode anything else. An action for both gets one of each.
+func contracts(command []string) []menuFile {
+	dir := filepath.Join(dataHome(), "contractor")
+	var cmd []string
+	for _, c := range command {
+		cmd = append(cmd, execArg(c))
+	}
+	var files []menuFile
+	for _, a := range menuActions {
+		if !a.WC || !slices.Contains(contractActions, a.Action) {
+			continue
+		}
+		kinds := map[string]string{}
+		if slices.Contains(a.On, "file") {
+			kinds["files"] = "!inode;"
+		}
+		if slices.Contains(a.On, "folder") {
+			kinds["folders"] = "inode/directory;"
+		}
+		for _, kind := range []string{"files", "folders"} {
+			mime, ok := kinds[kind]
+			if !ok {
+				continue
+			}
+			name := "TrunkLine: " + a.Label
+			if a.Action == "open" {
+				name = a.Label // "Open in TrunkLine" says it already
+			}
+			content := fmt.Sprintf("# %s from TrunkLine's list of actions; rewritten on the next run.\n"+
+				"[Contractor Entry]\nName=%s\nIcon=%s\nDescription=%s\nMimeType=%s\nExec=%s %s -- %%F\n",
+				writtenBy, name, a.Icon, name, mime, strings.Join(cmd, " "), a.Action)
+			files = append(files, menuFile{path: filepath.Join(dir, "trunkline-"+a.Action+"-"+kind+".contract"), content: []byte(content), mode: 0o644})
+		}
+	}
+	return files
 }
 
 // dolphinMenus are Dolphin's service menus (KIO, KDE Frameworks 5.85 and

@@ -220,6 +220,12 @@ Supported so far:
   (`~/.config/Thunar/uca.xml`), next to your own, which it leaves as they
   are; `--remove` takes only TrunkLine's out. Like Dolphin, it shows the
   same items everywhere. Restart Thunar with `thunar -q`.
+- **PCManFM-Qt** (LXQt) and **PCManFM** (LXDE): a TrunkLine submenu from
+  file-manager actions in `~/.local/share/file-manager/actions`, the same
+  items everywhere. Close PCManFM-Qt's windows and open it again.
+- **elementary Files**: Commit, Update, Show log and Open in TrunkLine, as
+  Contractor items (`~/.local/share/contractor`). Files shows these
+  directly in its menu rather than in a submenu, so only the everyday four.
 - **Dolphin** and Konqueror (KDE). Dolphin can't tell whether a file is in a
   working copy, so the menu shows the same items everywhere; outside a
   working copy they offer a checkout or an import. For svn status icons on

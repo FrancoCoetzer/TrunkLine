@@ -94,6 +94,11 @@ rebuild after editing `frontend/dist`.
   file: `mergeUCA` only adds or removes the actions whose `unique-id` starts
   with `trunkline-` and keeps everything else byte for byte; a new file
   starts from the system copy (Thunar reads one or the other, not both).
+  PCManFM-Qt gets file-manager actions (one file per action plus a
+  `Type=Menu` file), elementary Files a few Contractor `.contract` files
+  (flat in its menu, so only `contractActions`). Commands run through
+  `g_shell_parse_argv` are quoted by `shellQuote`; desktop-entry ones by
+  `execArg`.
   The Python extension `integrate/nautilus.py` serves Nautilus, Nemo and Caja
   (`__FM__` picks the API); it is tested against a stand-in for that API
   (`integrate_test.go`). Integrate only replaces or
