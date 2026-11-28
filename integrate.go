@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 
@@ -242,7 +243,14 @@ func runIntegrate(args []string, out io.Writer) int {
 		if remove {
 			fmt.Fprintln(out, "No TrunkLine menus to remove.")
 		} else {
-			fmt.Fprintln(out, "No file manager TrunkLine can add a menu to was found. Supported so far: Nautilus, Nemo, Caja, Dolphin.")
+			switch runtime.GOOS {
+			case "linux":
+				fmt.Fprintln(out, "No file manager TrunkLine can add a menu to was found. Supported so far: Nautilus, Nemo, Caja, Dolphin.")
+			case "windows":
+				fmt.Fprintln(out, "File manager menus are only on Linux so far; a TrunkLine menu in Windows Explorer is planned.")
+			default:
+				fmt.Fprintln(out, "File manager menus are only on Linux so far.")
+			}
 		}
 	}
 	return code
