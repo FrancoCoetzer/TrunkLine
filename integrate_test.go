@@ -139,7 +139,7 @@ func TestIntegrate(t *testing.T) {
 	t.Cleanup(func() { integrations = saved })
 	integrations = []integration{saved[0]}
 	integrations[0].present = func() bool { return true }
-	p := integrations[0].path()
+	p := integrations[0].files(nil)[0].path
 
 	var out strings.Builder
 	if code := runIntegrate(nil, &out); code != 0 {
@@ -174,5 +174,68 @@ func TestIntegrate(t *testing.T) {
 	}
 	if b, _ := os.ReadFile(p); string(b) != "# mine\n" {
 		t.Errorf("changed to %q", b)
+	}
+}
+
+func TestDolphinMenus(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	files := dolphinMenus([]string{"/opt/trunk line/trunkline"})
+	want := map[string][2]string{ // file: MimeType, Actions
+		"trunkline-files.desktop":   {"all/allfiles;", "commit;log;diff;blame;add;revert;lock;unlock;open;"},
+		"trunkline-folders.desktop": {"inode/directory;", "commit;update;log;add;revert;open;"},
+	}
+	for _, f := range files {
+		w, ok := want[filepath.Base(f.path)]
+		if !ok || filepath.Base(filepath.Dir(f.path)) != "servicemenus" {
+			t.Errorf("unexpected file %s", f.path)
+			continue
+		}
+		s := string(f.content)
+		for _, line := range []string{"Type=Service", "MimeType=" + w[0], "Actions=" + w[1], "X-KDE-Submenu=TrunkLine",
+			"Name=Commit…", `Exec="/opt/trunk line/trunkline" commit -- %F`} {
+			if !strings.Contains(s, "\n"+line+"\n") {
+				t.Errorf("%s: no line %q in\n%s", f.path, line, s)
+			}
+		}
+		if f.mode&0o111 == 0 {
+			t.Errorf("%s: not executable (KF6 skips it)", f.path)
+		}
+	}
+}
+
+func TestExecArg(t *testing.T) {
+	for in, want := range map[string]string{
+		"/usr/bin/trunkline": "/usr/bin/trunkline",
+		"/a b/trunkline":     `"/a b/trunkline"`,
+		"/opt/$x":            `"/opt/\\$x"`,
+		`/a\b`:               `"/a\\\\b"`,
+		"/50%/t":             "/50%%/t",
+		"":                   `""`,
+	} {
+		if got := execArg(in); got != want {
+			t.Errorf("execArg(%q) = %s, want %s", in, got, want)
+		}
+	}
+}
+
+func TestIntegrateDolphin(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	saved := integrations
+	t.Cleanup(func() { integrations = saved })
+	integrations = []integration{saved[1]}
+	integrations[0].present = func() bool { return true }
+	var out strings.Builder
+	if code := runIntegrate(nil, &out); code != 0 {
+		t.Fatalf("exit %d: %s", code, out.String())
+	}
+	for _, f := range integrations[0].files(nil) {
+		fi, err := os.Stat(f.path)
+		if err != nil || fi.Mode().Perm() != 0o755 {
+			t.Errorf("%s: %v %v", f.path, fi, err)
+		}
+	}
+	out.Reset()
+	if code := runIntegrate([]string{"--remove"}, &out); code != 0 || strings.Count(out.String(), ".desktop") != 2 {
+		t.Errorf("remove: exit %d: %s", code, out.String())
 	}
 }

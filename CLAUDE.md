@@ -89,6 +89,8 @@ rebuild after editing `frontend/dist`.
   item only runs `trunkline <action> -- <paths>`: no svn logic in the menus,
   and building a menu never runs svn (a `.svn` folder above the path is the
   only check). A new action needs a `cliActions` entry too (a test checks).
+  Dolphin gets two KIO service menus (files, folders), executable for KF6,
+  with `Exec` quoted by `execArg`.
   The Nautilus extension is `integrate/nautilus.py`, tested against a stand-in
   for its Python API (`integrate_test.go`). Integrate only replaces or
   removes files that carry its `writtenBy` mark.

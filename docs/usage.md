@@ -208,9 +208,17 @@ trunkline integrate          # adds the menu to the file managers it finds
 trunkline integrate --remove # takes it out again
 ```
 
-Supported so far: **Nautilus** (GNOME Files), which needs its Python
-support (`sudo apt install python3-nautilus`, Fedora: `nautilus-python`).
-Restart it afterwards with `nautilus -q`. Run `trunkline integrate` again
+Supported so far:
+
+- **Nautilus** (GNOME Files), which needs its Python support (`sudo apt
+  install python3-nautilus`, Fedora: `nautilus-python`). Restart it
+  afterwards with `nautilus -q`.
+- **Dolphin** and Konqueror (KDE). Dolphin can't tell whether a file is in a
+  working copy, so the menu shows the same items everywhere; outside a
+  working copy they offer a checkout or an import. For svn status icons on
+  files, install KDE's `dolphin-plugins` and turn on its Subversion plugin
+  in Dolphin's settings.
+ Run `trunkline integrate` again
 after moving TrunkLine: the menu runs the program from where it was then.
 
 Every file manager also has **Open With → TrunkLine** on folders, with no

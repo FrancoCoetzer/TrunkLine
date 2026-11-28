@@ -60,21 +60,29 @@ var nautilusTemplate string
 // file that has it, never one of the user's own.
 const writtenBy = "Written by `trunkline integrate`"
 
-// integration is one file manager's menu: a per-user file.
+// integration is one file manager's menu: per-user files.
 type integration struct {
 	name    string
-	present func() bool               // is the file manager installed?
-	path    func() string             // where its menu file goes
-	content func([]string) []byte     // the file, running this command
-	note    func(removed bool) string // what else to do, if anything
+	present func() bool                       // is the file manager installed?
+	files   func(command []string) []menuFile // its menu files, running this command
+	note    func(removed bool) string         // what else to do, if anything
+}
+
+// menuFile is one file a menu needs.
+type menuFile struct {
+	path    string
+	content []byte
+	mode    fs.FileMode
 }
 
 var integrations = []integration{
 	{
 		name:    "Nautilus (GNOME Files)",
 		present: func() bool { _, err := exec.LookPath("nautilus"); return err == nil },
-		path:    func() string { return filepath.Join(dataHome(), "nautilus-python", "extensions", "trunkline.py") },
-		content: nautilusExtension,
+		files: func(command []string) []menuFile {
+			p := filepath.Join(dataHome(), "nautilus-python", "extensions", "trunkline.py")
+			return []menuFile{{p, nautilusExtension(command), 0o644}}
+		},
 		note: func(removed bool) string {
 			s := "Restart Nautilus to see the change: nautilus -q"
 			if !removed && !nautilusPython() {
@@ -82,6 +90,21 @@ var integrations = []integration{
 					"(Fedora: sudo dnf install nautilus-python), then: nautilus -q"
 			}
 			return s
+		},
+	},
+	{
+		name: "Dolphin (KDE)",
+		present: func() bool {
+			for _, fm := range []string{"dolphin", "konqueror"} {
+				if _, err := exec.LookPath(fm); err == nil {
+					return true
+				}
+			}
+			return false
+		},
+		files: dolphinMenus,
+		note: func(bool) string {
+			return "Dolphin reads it the next time it opens a menu (or reopen its window)."
 		},
 	},
 }
@@ -151,30 +174,47 @@ func runIntegrate(args []string, out io.Writer) int {
 		}
 	}
 	code, found := 0, false
+	removed := false
 	for _, in := range integrations {
-		p := in.path()
 		if !remove && !in.present() {
 			continue
 		}
-		found = true
-		done, err := integrateOne(in, p, remove)
-		switch {
-		case err != nil:
-			fmt.Fprintf(out, "%s: %v\n", in.name, err)
-			code = 1
-		case done && remove:
-			fmt.Fprintf(out, "%s: removed %s\n  %s\n", in.name, p, indent(in.note(true)))
-		case done:
-			fmt.Fprintf(out, "%s: wrote %s\n  %s\n", in.name, p, indent(in.note(false)))
-		case remove:
-			found = false
+		var done []string
+		failed := false
+		for _, f := range in.files(menuCommand()) {
+			ok, err := integrateOne(f, remove)
+			if err != nil {
+				fmt.Fprintf(out, "%s: %v\n", in.name, err)
+				failed = true
+			} else if ok {
+				done = append(done, f.path)
+			}
 		}
+		if failed {
+			code = 1
+		}
+		if !remove {
+			found = true
+		}
+		if len(done) == 0 {
+			continue
+		}
+		removed = removed || remove
+		verb := "wrote"
+		if remove {
+			verb = "removed"
+		}
+		fmt.Fprintf(out, "%s: %s %s\n  %s\n", in.name, verb,
+			strings.Join(done, "\n  "+strings.Repeat(" ", len(verb)+1)), indent(in.note(remove)))
+	}
+	if remove {
+		found = removed || code != 0
 	}
 	if !found {
 		if remove {
 			fmt.Fprintln(out, "No TrunkLine menus to remove.")
 		} else {
-			fmt.Fprintln(out, "No file manager TrunkLine can add a menu to was found. Supported so far: Nautilus.")
+			fmt.Fprintln(out, "No file manager TrunkLine can add a menu to was found. Supported so far: Nautilus, Dolphin.")
 		}
 	}
 	return code
@@ -184,7 +224,8 @@ func indent(s string) string { return strings.ReplaceAll(s, "\n", "\n  ") }
 
 // integrateOne writes or removes one menu file. done is false when there was
 // nothing to remove.
-func integrateOne(in integration, path string, remove bool) (done bool, err error) {
+func integrateOne(f menuFile, remove bool) (done bool, err error) {
+	path := f.path
 	old, err := os.ReadFile(path)
 	exists := err == nil
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
@@ -202,7 +243,61 @@ func integrateOne(in integration, path string, remove bool) (done bool, err erro
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return false, err
 	}
-	return true, os.WriteFile(path, in.content(menuCommand()), 0o644)
+	if err := os.WriteFile(path, f.content, f.mode); err != nil {
+		return false, err
+	}
+	return true, os.Chmod(path, f.mode) // WriteFile only sets it on a new file
+}
+
+// dolphinMenus are Dolphin's service menus (KIO, KDE Frameworks 5.85 and
+// later; KF6 only loads a user's own if it is executable). A service menu
+// can't tell whether a path is in a working copy, so it lists the
+// working-copy actions everywhere; outside one, TrunkLine offers a checkout
+// or an import instead. One file for files, one for folders (which Dolphin
+// also uses for the empty space inside a folder).
+func dolphinMenus(command []string) []menuFile {
+	dir := filepath.Join(dataHome(), "kio", "servicemenus")
+	return []menuFile{
+		{filepath.Join(dir, "trunkline-files.desktop"), dolphinMenu(command, "file", "all/allfiles;"), 0o755},
+		{filepath.Join(dir, "trunkline-folders.desktop"), dolphinMenu(command, "folder", "inode/directory;"), 0o755},
+	}
+}
+
+func dolphinMenu(command []string, on, mime string) []byte {
+	var acts []menuAction
+	var ids []string
+	for _, a := range menuActions {
+		if a.WC && slices.Contains(a.On, on) {
+			acts = append(acts, a)
+			ids = append(ids, a.Action)
+		}
+	}
+	var cmd []string
+	for _, c := range command {
+		cmd = append(cmd, execArg(c))
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "# TrunkLine's menu in Dolphin (KDE): right-click > TrunkLine.\n"+
+		"# %s from TrunkLine's list of actions; rewritten on the next run.\n"+
+		"[Desktop Entry]\nType=Service\nMimeType=%s\nX-KDE-Protocols=file\n"+
+		"X-KDE-Submenu=TrunkLine\nIcon=trunkline\nActions=%s;\n", writtenBy, mime, strings.Join(ids, ";"))
+	for _, a := range acts {
+		// "--": a path that starts with "-" is still a path
+		fmt.Fprintf(&b, "\n[Desktop Action %s]\nName=%s\nIcon=%s\nExec=%s %s -- %%F\n",
+			a.Action, a.Label, a.Icon, strings.Join(cmd, " "), a.Action)
+	}
+	return []byte(b.String())
+}
+
+// execArg quotes one argument for a .desktop file's Exec key: the Desktop
+// Entry spec's quoting, then its string escapes; % is doubled.
+func execArg(s string) string {
+	s = strings.ReplaceAll(s, "%", "%%")
+	if s != "" && !strings.ContainsAny(s, " \t\n\"'\\><~|&;$*?#()`") {
+		return s
+	}
+	q := strings.NewReplacer(`\`, `\\`, `"`, `\"`, "`", "\\`", `$`, `\$`).Replace(s)
+	return `"` + strings.ReplaceAll(q, `\`, `\\`) + `"`
 }
 
 // menuActionsValid checks the list against the command line (for the tests).
