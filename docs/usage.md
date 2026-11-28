@@ -231,8 +231,15 @@ Supported so far:
   working copy they offer a checkout or an import. For svn status icons on
   files, install KDE's `dolphin-plugins` and turn on its Subversion plugin
   in Dolphin's settings.
- Run `trunkline integrate` again
-after moving TrunkLine: the menu runs the program from where it was then.
+
+Run `trunkline integrate` again after moving TrunkLine: the menu runs the
+program from where it was then.
+
+**Help wanted:** the menus for Nautilus, Dolphin and Thunar have been tried
+by hand. Those for Nemo, Caja, PCManFM-Qt, PCManFM and elementary Files come
+from the same list and are checked by tests, but nobody has tried them in
+those file managers yet. If you use one, please tell us how it went, whether
+it works or not: [open an issue](https://github.com/FrancoCoetzer/TrunkLine/issues).
 
 Every file manager also has **Open With → TrunkLine** on folders, with no
 setup, and you can drag a folder onto TrunkLine's window.

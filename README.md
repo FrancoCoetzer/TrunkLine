@@ -122,6 +122,8 @@ work first, then everything else.
   manager), or drag a folder onto the window, opens that working copy.
   `trunkline integrate` adds a TrunkLine right-click menu (Commit, Update,
   Show log, Blame, Lock, …) to Nautilus, Nemo, Caja, Thunar, Dolphin, PCManFM-Qt and elementary Files.
+  Some of these haven't been tried by hand yet; reports are welcome (see
+  [the usage guide](docs/usage.md#from-your-file-manager)).
 - **Menus** along the top: File (add a working copy or repository,
   Preferences, Quit), View (tabs, unversioned files, theme, zoom) and Help
   (keyboard shortcuts, updates, reporting a problem, About). Alt+F, Alt+V and
