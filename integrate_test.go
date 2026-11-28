@@ -246,7 +246,7 @@ func TestIntegrateDolphin(t *testing.T) {
 	}
 	for _, f := range integrations[0].files(nil) {
 		fi, err := os.Stat(f.path)
-		if err != nil || fi.Mode().Perm() != 0o755 {
+		if err != nil || runtime.GOOS != "windows" && fi.Mode().Perm() != 0o755 { // Windows has no mode bits
 			t.Errorf("%s: %v %v", f.path, fi, err)
 		}
 	}
@@ -267,14 +267,15 @@ func byName(t *testing.T, list []integration, name string) integration {
 }
 
 func TestIntegratePaths(t *testing.T) {
-	t.Setenv("XDG_DATA_HOME", "/data")
+	data := t.TempDir()
+	t.Setenv("XDG_DATA_HOME", data)
 	for name, want := range map[string]string{
-		"Nautilus (GNOME Files)": "/data/nautilus-python/extensions/trunkline.py",
-		"Nemo (Cinnamon)":        "/data/nemo-python/extensions/trunkline.py",
-		"Caja (MATE)":            "/data/caja-python/extensions/trunkline.py",
+		"Nautilus (GNOME Files)": "nautilus-python",
+		"Nemo (Cinnamon)":        "nemo-python",
+		"Caja (MATE)":            "caja-python",
 	} {
 		f := byName(t, integrations, name).files([]string{"trunkline"})
-		if len(f) != 1 || f[0].path != want {
+		if len(f) != 1 || f[0].path != filepath.Join(data, want, "extensions", "trunkline.py") {
 			t.Errorf("%s: %+v", name, f)
 			continue
 		}
